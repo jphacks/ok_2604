@@ -6,7 +6,7 @@
   <title>ライフRPG</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Noto+Sans+JP:wght@400;500;700&display=swap">
   <link rel="stylesheet" href="style.css">
-  <!-- データファイルを先に読み込む -->
+  <!-- データファイル(jobs.js)を先に読み込む -->
   <script src="jobs.js"></script>
 </head>
 <body>
@@ -20,7 +20,7 @@
     </div>
   </header>
 
-  <!-- ① 記録 -->
+  <!-- ① 記録画面 -->
   <section data-view="record">
     <div class="win">
       <h2>今日の冒険を記す</h2>
@@ -36,7 +36,7 @@
     </div>
   </section>
 
-  <!-- ② 判定 -->
+  <!-- ② 判定リザルト画面 -->
   <section data-view="judge" hidden>
     <div class="win">
       <h2>バトルリザルト</h2>
@@ -49,8 +49,9 @@
     </div>
   </section>
 
-  <!-- ③ ステータス・適性・資格 -->
+  <!-- ③ ステータス・適性分析・資格インベントリ画面 -->
   <section data-view="status" hidden>
+    <!-- レーダーチャートと各種能力値 -->
     <div class="win">
       <h2>ステータス</h2>
       <svg class="radar" id="radar" viewBox="0 0 360 330" role="img" aria-label="6つの能力のレーダーチャート"></svg>
@@ -72,11 +73,13 @@
       <div id="certList" style="display:flex; flex-direction:column; gap:12px; margin-top:8px;"></div>
     </div>
 
+    <!-- 軍師の助言 -->
     <div class="win">
       <h2>軍師の助言</h2>
       <div id="swot" class="body"></div>
     </div>
 
+    <!-- 勇者の名前設定 -->
     <div class="win">
       <h2>勇者の名前</h2>
       <input type="text" id="nameIn" maxlength="12" aria-label="勇者の名前" placeholder="勇者">
@@ -84,7 +87,7 @@
     </div>
   </section>
 
-  <!-- ④ 日誌 -->
+  <!-- ④ 冒険日誌画面 -->
   <section data-view="diary" hidden>
     <div class="win">
       <h2>冒険日誌</h2>
@@ -93,7 +96,7 @@
     <div id="diary" style="display:flex;flex-direction:column;gap:18px"></div>
   </section>
 
-  <!-- ⑤ 振り返り -->
+  <!-- ⑤ 振り返り画面 -->
   <section data-view="review" hidden>
     <div class="win">
       <h2>成長の記録</h2>
@@ -112,6 +115,7 @@
   </section>
 </div>
 
+<!-- 下部ナビゲーションメニュー -->
 <nav class="menu" aria-label="コマンド">
   <div>
     <button data-tab="record" role="tab" aria-selected="true">ぼうけん</button>
