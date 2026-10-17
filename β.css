@@ -1,4 +1,3 @@
-/* Layout: 480px column of classic JRPG windows (blue gradient, white frame), bottom command menu with ▶ cursor; diary pages are parchment. Single dark look by design. */
 :root {
   --night: #070A24;
   --win-top: #1C2FB0;
@@ -147,7 +146,7 @@ header {
   transition: width .8s;
 }
 
-textarea, input[type=text] {
+textarea, input[type=text], select.select-box {
   width: 100%;
   font-family: var(--f-body);
   font-size: 15px;
@@ -199,11 +198,6 @@ textarea {
 
 .seg label:has(input:checked)::before {
   content: "▶ ";
-}
-
-.seg label:has(input:focus-visible) {
-  outline: 2px dashed var(--gold);
-  outline-offset: 2px;
 }
 
 .btn {
