@@ -1,26 +1,115 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ライフRPG</title>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Noto+Sans+JP:wght@400;500;700&display=swap">
-  <link rel="stylesheet" href="style.css">
-  <!-- データファイル(jobs.js)を先に読み込む -->
-  <script src="jobs.js"></script>
-</head>
-<body>
+<title>ライフRPG</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Noto+Sans+JP:wght@400;500;700&display=swap">
+<style>
+/* Layout: 480px column of classic JRPG windows (blue gradient, white frame), bottom command menu with ▶ cursor; diary pages are parchment. Single dark look by design. */
+:root{
+  --night:#070A24; --win-top:#1C2FB0; --win-bot:#0A1050; --frame:#F4F4FF; --edge:#05072A;
+  --text:#F4F4FF; --dim:#A9B2F0; --gold:#FFD34D; --hp:#5BE38A; --foe:#FF7A7A; --cyan:#7FE8FF;
+  --paper:#F0E2BC; --ink:#3B2A18; --ink-dim:#7A6446;
+  --f-dot:'DotGothic16','Hiragino Maru Gothic ProN',monospace;
+  --f-body:'Noto Sans JP','Hiragino Sans',sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--night);
+  background-image:radial-gradient(circle at 20% 0,#1a1f6b55,transparent 50%),radial-gradient(circle,#ffffff14 1px,transparent 1.5px);
+  background-size:auto,28px 28px;
+  color:var(--text);font-family:var(--f-dot);font-size:15px;line-height:1.8;margin:0;
+  padding-block:20px 104px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.app{max-width:480px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+h1,h2,h3,p{margin:0}
+.win{background:linear-gradient(180deg,var(--win-top),var(--win-bot));border:3px solid var(--frame);border-radius:8px;
+  box-shadow:0 0 0 3px var(--edge),inset 0 0 0 2px var(--edge);padding:16px 18px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.win h2{font-weight:400;font-size:17px;color:var(--gold);letter-spacing:.08em}
+.win h2::before{content:"◆ ";color:var(--cyan)}
+.dim{color:var(--dim);font-size:13px;line-height:1.7}
+.body{font-family:var(--f-body);font-size:14px;line-height:1.8}
+header{display:flex;flex-direction:column;gap:8px}
+.hdr{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;align-items:center}
+.title{font-size:22px;letter-spacing:.12em;color:var(--gold);text-shadow:2px 2px 0 var(--edge)}
+.title small{display:block;font-size:11px;color:var(--cyan);letter-spacing:.3em}
+.hero{font-size:13px;text-align:right;color:var(--text)}
+.hero b{font-weight:400;color:var(--gold)}
+.gauge{grid-column:1/-1;display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;font-size:12px}
+.gauge .track{height:10px;background:var(--edge);border:2px solid var(--frame);border-radius:2px;overflow:hidden}
+.gauge .track i{display:block;height:100%;background:repeating-linear-gradient(90deg,var(--hp) 0 6px,#2fb865 6px 8px);transition:width .8s}
+textarea,input[type=text]{width:100%;font-family:var(--f-body);font-size:15px;color:var(--text);background:#050830;border:2px solid var(--frame);border-radius:4px;padding:10px 12px}
+textarea{min-height:104px;resize:vertical}
+:focus-visible{outline:2px dashed var(--gold);outline-offset:2px}
+.seg{display:flex;gap:8px;flex-wrap:wrap}
+.seg label{flex:1;min-width:80px;text-align:center;border:2px solid var(--dim);border-radius:4px;padding:6px 8px;cursor:pointer;font-size:13px}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg label:has(input:checked){border-color:var(--gold);color:var(--gold);background:#0004}
+.seg label:has(input:checked)::before{content:"▶ "}
+.seg label:has(input:focus-visible){outline:2px dashed var(--gold);outline-offset:2px}
+.btn{font:inherit;font-size:16px;color:var(--text);background:transparent;border:2px solid var(--frame);border-radius:4px;padding:10px 16px;cursor:pointer;text-align:left;letter-spacing:.06em}
+.btn::before{content:"▶ ";color:transparent}
+.btn:hover::before,.btn:focus-visible::before{color:var(--gold);animation:blink 1s steps(2) infinite}
+.btn.primary{background:var(--gold);color:var(--edge);border-color:var(--gold)}
+.btn.primary:hover::before{color:var(--edge)}
+@keyframes blink{50%{opacity:0}}
+.chips{display:flex;flex-direction:column;gap:2px}
+.chips button{font:inherit;font-size:12px;text-align:left;background:none;border:0;color:var(--dim);cursor:pointer;padding:2px 0}
+.chips button::before{content:"　"}
+.chips button:hover::before,.chips button:focus-visible::before{content:"▶ ";color:var(--gold)}
+.chips button:hover{color:var(--text)}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.log{display:flex;flex-direction:column;gap:4px;font-size:15px}
+.log p{opacity:0;animation:line .01s forwards;animation-delay:calc(var(--i)*.55s)}
+@keyframes line{to{opacity:1}}
+.foe{color:var(--foe)}
+.gain{display:flex;justify-content:space-between;align-items:baseline;gap:12px;border-top:2px dotted #ffffff40;padding-top:8px}
+.gain b{font-weight:400;font-size:17px}
+.gain .pt{color:var(--gold);font-size:22px;text-shadow:2px 2px 0 var(--edge);white-space:nowrap}
+.levelup{color:var(--gold);text-align:center;font-size:18px;border:2px solid var(--gold);padding:6px;animation:blink 1.2s steps(2) 3}
+.menu{position:fixed;left:0;right:0;bottom:0;display:flex;justify-content:center;background:var(--edge);border-top:3px solid var(--frame);
+  padding:8px max(16px,env(safe-area-inset-right,0px)) calc(8px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.menu div{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;width:100%;max-width:480px}
+.menu button{font:inherit;font-size:13px;background:none;border:0;color:var(--dim);padding:8px 2px;cursor:pointer;white-space:nowrap}
+.menu button[aria-selected="true"]{color:var(--gold)}
+.menu button[aria-selected="true"]::before{content:"▶";margin-right:2px}
+.radar{width:100%;height:auto;display:block}
+.radar text{fill:var(--text);font-family:var(--f-dot);font-size:13px}
+.radar .v{fill:var(--gold);font-size:12px}
+.stats{display:grid;gap:6px}
+.stat{display:grid;grid-template-columns:5.5em 1fr 4.5em;gap:8px;align-items:center;font-size:14px}
+.stat .track{height:8px;background:var(--edge);border:1px solid var(--dim)}
+.stat .track i{display:block;height:100%;background:var(--cyan)}
+.stat span:last-child{text-align:right;color:var(--gold)}
+.page{background:var(--paper);color:var(--ink);border:3px solid #6B4A22;border-radius:4px;box-shadow:0 0 0 3px var(--edge),4px 6px 0 3px #0006;
+  padding:18px 18px 16px;display:flex;flex-direction:column;gap:10px;font-family:var(--f-body);min-width:0;
+  background-image:repeating-linear-gradient(transparent 0 31px,#a88b5a30 31px 32px)}
+.page .day{font-family:var(--f-dot);font-size:12px;color:var(--ink-dim);letter-spacing:.1em}
+.page h3{font-family:var(--f-dot);font-weight:400;font-size:19px;line-height:1.4;letter-spacing:.06em;text-wrap:balance}
+.page p{font-size:14px;line-height:2.1;overflow-wrap:anywhere}
+.page .loot{font-family:var(--f-dot);border-top:2px dashed #6B4A2288;padding-top:8px;font-size:13px;color:#6B3F0E;display:flex;flex-wrap:wrap;gap:4px 14px}
+.page .hint{font-size:13px;color:var(--ink-dim);line-height:1.8}
+.entry{border-top:2px dotted #ffffff40;padding:8px 0;display:flex;flex-direction:column;gap:2px}
+.entry:first-child{border-top:0}
+.entry small{color:var(--cyan);font-size:12px}
+.tag{color:var(--gold);font-size:12px;margin-right:8px}
+.sample{color:var(--dim);font-size:11px;border:1px dashed var(--dim);padding:0 4px;margin-left:6px}
+.page .badge{font-family:var(--f-dot);font-size:11px;color:var(--ink-dim);border:1px solid var(--ink-dim);padding:0 6px;align-self:flex-start}
+.page .btn{color:var(--ink);border-color:var(--ink);align-self:flex-start;font-size:14px}
+.page .btn:hover::before,.page .btn:focus-visible::before{color:#8A4B08}
+.page.pending{opacity:.85}
+.page.pending p::after{content:"…";animation:blink 1s steps(2) infinite}
+[data-view]{display:flex;flex-direction:column;gap:16px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.log p{opacity:1}}
+</style>
 
 <div class="app">
   <header class="win">
     <div class="hdr">
       <div class="title"><small>LIFE ROLE-PLAYING</small>ライフRPG</div>
-      <div class="hero"><b id="heroName">勇者</b> <span id="cls"></span><br><span id="lv">Lv.1</span></div>
+      <div class="hero"><b id="heroName">勇者</b>　<span id="cls"></span><br><span id="lv">Lv.1</span></div>
       <div class="gauge"><span>EXP</span><div class="track"><i id="lvbar"></i></div><span id="nextxp"></span></div>
     </div>
   </header>
 
-  <!-- ① 記録画面 -->
+  <!-- ① 記録 -->
   <section data-view="record">
     <div class="win">
       <h2>今日の冒険を記す</h2>
@@ -36,7 +125,7 @@
     </div>
   </section>
 
-  <!-- ② 判定リザルト画面 -->
+  <!-- ② 判定 -->
   <section data-view="judge" hidden>
     <div class="win">
       <h2>バトルリザルト</h2>
@@ -49,54 +138,34 @@
     </div>
   </section>
 
-  <!-- ③ ステータス・適性分析・資格インベントリ画面 -->
+  <!-- ③ ステータス -->
   <section data-view="status" hidden>
-    <!-- レーダーチャートと各種能力値 -->
     <div class="win">
       <h2>ステータス</h2>
       <svg class="radar" id="radar" viewBox="0 0 360 330" role="img" aria-label="6つの能力のレーダーチャート"></svg>
       <div class="stats" id="stats"></div>
     </div>
-
-    <!-- 職業適合度・就職判定 -->
-    <div class="win">
-      <h2>将来像への適性分析</h2>
-      <p class="dim">目指す職業を選択すると、適合度と必要基準の到達度を計算します。</p>
-      <select id="jobSelect" class="select-box"></select>
-      <div id="jobAnalysisResult" class="body" style="margin-top:10px;"></div>
-    </div>
-
-    <!-- 資格インベントリ -->
-    <div class="win">
-      <h2>資格・スキルインベントリ</h2>
-      <p class="dim">取得した資格にチェックを入れると、ボーナス経験値を獲得できます。</p>
-      <div id="certList" style="display:flex; flex-direction:column; gap:12px; margin-top:8px;"></div>
-    </div>
-
-    <!-- 軍師の助言 -->
-    <div class="win">
-      <h2>軍師の助言</h2>
-      <div id="swot" class="body"></div>
-    </div>
-
-    <!-- 勇者の名前設定 -->
-    <div class="win">
-      <h2>勇者の名前</h2>
+    <div class="win"><h2>軍師の助言</h2><div id="swot" class="body"></div></div>
+    <div class="win"><h2>勇者の名前</h2>
       <input type="text" id="nameIn" maxlength="12" aria-label="勇者の名前" placeholder="勇者">
-      <p class="dim">日誌の主人公の名前になります。</p>
-    </div>
+      <p class="dim">日誌の主人公の名前になります。</p></div>
+    <div class="win" id="aiWin"><h2>AI設定</h2>
+      <p class="dim" id="aiState"></p>
+      <div id="keyBox" style="display:flex;flex-direction:column;gap:8px">
+        <select id="provSel" aria-label="AIサービス"></select>
+        <input type="password" id="keyIn" autocomplete="off" aria-label="APIキー" placeholder="sk-ant-...">
+        <div class="row"><button class="btn" id="keySave">保存して接続テスト</button><button class="btn" id="keyDel">キーを削除</button></div>
+        <p class="dim">キーはこの端末のブラウザにだけ保存され、AIの呼び出し以外には送信されません。利用料金は各サービスのあなたのアカウントにかかります。ブラウザからの直接接続を許可していないサービスでは、接続テストが失敗することがあります。共有パソコンでは使わないでください。</p>
+      </div></div>
   </section>
 
-  <!-- ④ 冒険日誌画面 -->
+  <!-- ④ 日誌 -->
   <section data-view="diary" hidden>
-    <div class="win">
-      <h2>冒険日誌</h2>
-      <p class="dim">日付が変わった日の冒険は、このページを開いたときに日誌として残ります。</p>
-    </div>
+    <div class="win"><h2>冒険日誌</h2><p class="dim">日付が変わった日の冒険は、このページを開いたときにAIが日誌として綴ります。今日の分は、ボタンでいつでも締められます。</p></div>
     <div id="diary" style="display:flex;flex-direction:column;gap:18px"></div>
   </section>
 
-  <!-- ⑤ 振り返り画面 -->
+  <!-- ⑤ 振り返り -->
   <section data-view="review" hidden>
     <div class="win">
       <h2>成長の記録</h2>
@@ -107,24 +176,330 @@
       <div id="sumline" class="body"></div>
       <svg class="radar" id="radar2" viewBox="0 0 360 330" role="img" aria-label="期間内の獲得経験値のレーダーチャート"></svg>
     </div>
-    <div class="win">
-      <h2>冒険の履歴</h2>
-      <div id="log"></div>
-      <button class="btn" id="clearSample" hidden>サンプルの記録を消す</button>
-    </div>
+    <div class="win"><h2>冒険の履歴</h2><div id="log"></div>
+      <button class="btn" id="clearSample" hidden>サンプルの記録を消す</button></div>
   </section>
 </div>
 
-<!-- 下部ナビゲーションメニュー -->
-<nav class="menu" aria-label="コマンド">
-  <div>
-    <button data-tab="record" role="tab" aria-selected="true">ぼうけん</button>
-    <button data-tab="status" role="tab">ステータス</button>
-    <button data-tab="diary" role="tab">日誌</button>
-    <button data-tab="review" role="tab">ふりかえり</button>
-  </div>
-</nav>
+<nav class="menu" aria-label="コマンド"><div>
+  <button data-tab="record" role="tab">ぼうけん</button>
+  <button data-tab="status" role="tab">ステータス</button>
+  <button data-tab="diary" role="tab">日誌</button>
+  <button data-tab="review" role="tab">ふりかえり</button>
+</div></nav>
 
-<script src="script.js"></script>
-</body>
-</html>
+<script>
+const ABIL=[
+  {k:'mental',n:'精神力',cls:'不屈の戦士',day:'不屈の日',kw:['怒られ','叱られ','失敗','落ち込','嫌','つらい','辛い','ミス','断られ','振られ','我慢','耐え','不安','緊張','それでも','でも','立ち直','挑戦','頑張'],tip:'嫌なことがあった日は、5分だけ散歩して気持ちを書き出しましょう。'},
+  {k:'intel',n:'知力',cls:'見習い賢者',day:'修行の日',kw:['勉強','読書','本','授業','講義','試験','資格','学ん','調べ','レポート','課題','論文','研究','復習','英語','プログラ'],tip:'今日学んだことを1行でまとめると、知識が定着します。'},
+  {k:'body',n:'体力',cls:'鍛錬の闘士',day:'鍛錬の日',kw:['運動','走','ランニング','筋トレ','ジム','散歩','歩','ストレッチ','ヨガ','早起き','睡眠','健康','自炊','水泳','体操'],tip:'10分だけ歩く、ストレッチをする。小さな運動から始めましょう。'},
+  {k:'act',n:'行動力',cls:'旅立ちの剣士',day:'旅立ちの日',kw:['始め','初めて','申し込','応募','挑戦','行った','参加','実行','やってみ','提出','決め','片付','掃除','予約','準備'],tip:'気になっていたことを、2分でできる最初の一歩に分けて動いてみましょう。'},
+  {k:'social',n:'社交力',cls:'絆の吟遊詩人',day:'出会いの日',kw:['友達','友人','話し','会話','相談','飲み','サークル','チーム','バイト','同僚','先輩','後輩','家族','ありがとう','感謝','挨拶','連絡','上司','会った'],tip:'誰か1人に「ありがとう」を伝えてみましょう。'},
+  {k:'create',n:'創造力',cls:'創造の魔導士',day:'創造の日',kw:['作っ','描','絵','デザイン','書い','アイデア','企画','音楽','演奏','料理','撮影','動画','ブログ','日記','考え'],tip:'うまくなくていいので、何か1つ作ってみましょう。'}
+];
+const NEG=['怒られ','叱られ','失敗','落ち込','嫌','つらい','辛い','ミス','断られ','振られ','疲','最悪','意味がな','泣'];
+const FOES=['モヤモヤ','自己否定スライム','不安ゴースト','後悔ドラゴン','先延ばしゴブリン'];
+const EXAMPLES=['上司に怒られた。でも最後まで資料を直した','サークルの友達と話して気持ちが楽になった','3kmランニングして、夜に英語を30分勉強した','面接で緊張して失敗した','初めて企画書を作って提出した'];
+const KEY='liferpg.v2';
+const $=s=>document.querySelector(s);
+const abil=k=>ABIL.find(a=>a.k===k);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const isNeg=e=>e.mood==='bad'||NEG.some(w=>e.text.includes(w));
+const foeOf=e=>e.enemy||FOES[[...e.text].reduce((a,c)=>a+c.charCodeAt(0),0)%FOES.length];
+let state=load(), last=null;
+
+/* 保存データに壊れた記録があっても画面が崩れないよう、読み込み時に整える */
+function clean(s){
+  s.entries=s.entries.filter(e=>e&&typeof e.text==='string'&&Number.isFinite(+e.t)).map(e=>({...e,
+    gains:(Array.isArray(e.gains)?e.gains:[]).filter(g=>g&&abil(g.k)&&Number.isFinite(+g.v)).map(g=>({k:g.k,v:+g.v}))})).filter(e=>e.gains.length);
+  s.diaries=(s.diaries&&typeof s.diaries==='object')?s.diaries:{};
+  return s;
+}
+function load(){
+  try{const s=JSON.parse(localStorage.getItem(KEY));if(s&&Array.isArray(s.entries))return clean(s)}catch(e){}
+  const at=(d,h)=>{const x=new Date();x.setDate(x.getDate()-d);x.setHours(h,0,0,0);return x.getTime()};
+  const sample=[
+    [6,9,'上司に怒られた。でも最後まで資料を直して提出した','bad'],
+    [6,20,'帰り道に30分歩いて、気持ちを切り替えた','flat'],
+    [5,19,'ジムで筋トレして、帰ってから英語の勉強をした','good'],
+    [4,18,'サークルの先輩に相談して、アドバイスをもらった','flat'],
+    [2,21,'初めて動画を撮影して編集してみた','good'],
+    [1,15,'試験でミスをして落ち込んだ。夜に復習のノートを作った','bad']
+  ].map(([d,h,text,mood])=>({t:at(d,h),text,mood,gains:judge(text,mood).gains,sample:true}));
+  return {name:'',entries:sample,diaries:{}};
+}
+state.diaries??={};
+let SAMPLE;
+/* 中継サーバー（Cloudflare Workers）のURL。設定すると、利用者はキー不要でAIを使えます */
+const PROXY_URL='https://life-rpg-ai.shadiaoazure010.workers.dev';
+const KEYSTORE='liferpg.apikey';
+const getKey=()=>{try{return localStorage.getItem(KEYSTORE)||''}catch(e){return ''}};
+const setKey=k=>{try{k?localStorage.setItem(KEYSTORE,k):localStorage.removeItem(KEYSTORE)}catch(e){}};
+/* 単体のHTMLとして開いたとき：ユーザー自身のAPIキーでAnthropic APIを直接呼ぶ */
+const PROV={
+  anthropic:{n:'Claude（Anthropic）',ph:'sk-ant-...'},
+  gemini:{n:'Gemini（Google）',ph:'AIza...'},
+  openai:{n:'ChatGPT（OpenAI）',ph:'sk-...'}
+};
+const getProv=()=>{try{const p=localStorage.getItem('liferpg.provider');return PROV[p]?p:'anthropic'}catch(e){return 'anthropic'}};
+const setProv=p=>{try{localStorage.setItem('liferpg.provider',p)}catch(e){}};
+const parseJson=t=>{const m=String(t||'').match(/\{[\s\S]*\}/);if(!m)throw new Error('AIの返答を読み取れませんでした');return JSON.parse(m[0])};
+async function post(url,headers,body){
+  const res=await fetch(url,{method:'POST',headers:{'content-type':'application/json',...headers},body:JSON.stringify(body)});
+  const j=await res.json().catch(()=>({}));
+  if(!res.ok){const e=new Error(j.error?.message||(typeof j.error==='string'?j.error:'')||('HTTP '+res.status));e.status=res.status;throw e}
+  return j;
+}
+/* 単体のHTMLとして開いたとき：ユーザー自身のAPIキーで各社のAPIを直接呼ぶ */
+const keyAI=(key,prov='anthropic')=>({json:async(prompt,o={})=>{
+  const quick=o.modelTier==='quick';
+  if(prov==='gemini'){
+    const j=await post(`https://generativelanguage.googleapis.com/v1beta/models/${quick?'gemini-2.5-flash-lite':'gemini-2.5-flash'}:generateContent`,
+      {'x-goog-api-key':key},{contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json'}});
+    return parseJson(j.candidates?.[0]?.content?.parts?.map(p=>p.text).join(''));
+  }
+  if(prov==='openai'){
+    const j=await post('https://api.openai.com/v1/chat/completions',{authorization:'Bearer '+key},
+      {model:quick?'gpt-4o-mini':'gpt-4o',messages:[{role:'user',content:prompt}],response_format:{type:'json_object'}});
+    return parseJson(j.choices?.[0]?.message?.content);
+  }
+  const j=await post('https://api.anthropic.com/v1/messages',{'x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+    {model:quick?'claude-haiku-5-5':'claude-sonnet-5-5',max_tokens:1200,messages:[{role:'user',content:prompt}]});
+  return parseJson((j.content||[]).map(c=>c.text||'').join(''));
+}});
+const proxyAI={json:async(prompt,o={})=>{
+  const j=await post(PROXY_URL,{},{prompt,tier:o.modelTier==='quick'?'quick':'default'});
+  return parseJson(j.text);
+}};
+async function getSample(){
+  if(SAMPLE===undefined){try{SAMPLE=(await window.claude?.use?.('sample'))||null}catch(e){SAMPLE=null}}
+  if(Date.now()<COOLDOWN)return null;
+  if(SAMPLE)return SAMPLE;
+  if(PROXY_URL)return proxyAI;
+  const key=getKey();return key?keyAI(key,getProv()):null;
+}
+const generating=new Set(),failed=new Set();
+/* 無料枠の上限（429）に当たったら、しばらくAIを呼ばない */
+let COOLDOWN=0;
+const limited=e=>{if(e&&e.status===429)COOLDOWN=Date.now()+10*60*1000};
+
+/* AIが出来事を読んで経験値を判定する（使えない場合はキーワード判定） */
+async function aiJudge(text,mood){
+  const f=judge(text,mood),s=await getSample();
+  if(!s)return {...f,ai:false};
+  try{
+    const prompt=`あなたはRPG世界のゲームマスターです。ユーザーの今日の出来事を読み、6つの能力への経験値を判定してください。
+能力キー: mental=精神力, intel=知力, body=体力, act=行動力, social=社交力, create=創造力
+ルール: 出来事に実際に関係する能力だけに1〜3の整数を付与（最大3つ）。嫌な出来事や失敗は成長の材料として、精神力を高めに付与する。
+気分: ${mood}（good=快晴, flat=くもり, bad=嵐）
+出来事: ${text}
+JSONのみで返答: {"gains":[{"k":"mental","v":3}],"enemy":"出来事がつらいものなら敵の名前（例: 不安ゴースト）、そうでなければ空文字","reaction":"RPG風の一言（30字以内）","reframe":"出来事を成長として前向きに捉え直す、2文以内の言葉","next":"次にやると良い小さな行動を1文"}`;
+    const r=await s.json(prompt,{modelTier:'quick',cache:false});
+    const gains=(r.gains||[]).filter(g=>abil(g.k)&&+g.v>0).slice(0,3).map(g=>({k:g.k,v:Math.min(3,Math.round(+g.v))}));
+    if(!gains.length)return {...f,ai:false};
+    return {neg:!!r.enemy||f.neg,gains,enemy:r.enemy||'',reaction:r.reaction||'',reframe:r.reframe||'',next:r.next||'',ai:true};
+  }catch(e){limited(e);return {...f,ai:false}}
+}
+
+/* 1日分の記録から、AIが冒険日誌を書く */
+async function aiDiary(day,es){
+  const s=await getSample();if(!s)return null;
+  const ev=es.map(e=>{const d=new Date(e.t);return `- ${d.getHours()}時 ${e.text}（気分:${e.mood}、獲得:${gStr(e)}）`}).join('\n');
+  const prompt=`あなたはRPGの語り部です。主人公「${hero()}」のある1日の出来事から、冒険日誌の1ページを日本語で書いてください。
+条件:
+- 下の出来事だけを素材にし、書かれていない事実は作らない
+- 主人公は三人称（${hero()}は〜）、ファンタジーRPGの文体。350字前後、2〜3段落
+- つらい出来事は強敵や試練として描き、成長の糧として前向きにまとめる
+- 最後に、獲得した経験値に触れる一文を入れる
+日付: ${day}
+出来事:
+${ev}
+JSONのみで返答: {"title":"その日の章タイトル（15字以内）","body":"本文（段落は\\n\\nで区切る）","hint":"明日の冒険へのヒント1文"}`;
+  try{
+    const r=await s.json(prompt,{modelTier:'default',cache:false});
+    return r&&r.body?{title:String(r.title||''),body:String(r.body),hint:String(r.hint||'')}:null;
+  }catch(e){limited(e);return null}
+}
+const groupDays=()=>{const g={};state.entries.slice().sort((a,b)=>a.t-b.t).forEach(e=>(g[dayKey(e.t)]??=[]).push(e));return g};
+const sigOf=es=>es.map(e=>e.t).join(',');
+async function genDay(k){
+  const es=groupDays()[k];if(!es||generating.has(k))return;
+  generating.add(k);failed.delete(k);renderDiary();
+  const r=await aiDiary(k,es);
+  generating.delete(k);
+  if(r){state.diaries[k]={...r,sig:sigOf(es)};save()}else failed.add(k);
+  if(!$('[data-view=diary]').hidden)renderDiary();
+}
+let busy=false;
+async function ensureDiaries(){   /* 日付が変わった日の日誌を、開いたときに自動で書く */
+  if(busy)return;busy=true;
+  try{const g=groupDays(),today=dayKey(Date.now());
+    for(const k of Object.keys(g)){
+      const d=state.diaries[k];
+      if(g[k].every(e=>e.sample))continue;   /* サンプルの日はAIを使わない */
+      if(k!==today&&(!d||d.sig!==sigOf(g[k]))&&!failed.has(k)&&Date.now()>=COOLDOWN)await genDay(k);
+    }
+  }finally{busy=false}
+}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}}
+const hero=()=>state.name||'勇者';
+
+function judge(text,mood){
+  const neg=isNeg({text,mood}),g={};
+  ABIL.forEach(a=>{const h=a.kw.filter(w=>text.includes(w)).length;if(h&&a.k!=='mental')g[a.k]=Math.min(3,h+1)});
+  if(neg)g.mental=3;else if(ABIL[0].kw.some(w=>text.includes(w)))g.mental=2;
+  if(!Object.keys(g).length)g.mental=1;
+  return {neg,gains:Object.entries(g).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([k,v])=>({k,v}))};
+}
+const total=es=>{const t={};ABIL.forEach(a=>t[a.k]=0);es.forEach(x=>(x.gains||[]).forEach(g=>{if(g&&g.k in t&&Number.isFinite(+g.v))t[g.k]+=+g.v}));return t};
+const sorted=t=>ABIL.slice().sort((a,b)=>t[b.k]-t[a.k]);
+const gStr=e=>e.gains.map(g=>`${abil(g.k).n}+${g.v}`).join('、');
+
+function lvInfo(){
+  const n=Object.values(total(state.entries)).reduce((a,b)=>a+b,0);
+  const lv=Math.floor(Math.sqrt(n/4))+1,base=(lv-1)**2*4,nxt=lv**2*4;
+  return {n,lv,pct:Math.round((n-base)/(nxt-base)*100),rest:nxt-n};
+}
+
+/* 日誌の物語を組み立てる */
+function diaryOf(es){
+  const t=total(es),top=sorted(t)[0],negs=es.filter(isNeg),sum=Object.values(t).reduce((a,b)=>a+b,0);
+  const title=negs.length?(top.k==='mental'?'試練を越えた日':'嵐のなかの冒険'):top.day;
+  const intro=negs.length?`${hero()}の行く手に暗雲が立ちこめた一日だった。`:`${hero()}は今日も冒険の旅を続けた。`;
+  const body=es.map(e=>{
+    const a=abil(e.gains[0].k).n,q=`「${esc(e.text)}」`;
+    return isNeg(e)?`${q}――強敵〈${foeOf(e)}〉があらわれた！　${hero()}は${a}を振りしぼって立ち向かい、${gStr(e)}の経験値を手に入れた。`
+      :`${q}――${hero()}はこの出来事で${a}を磨き、${gStr(e)}の経験値を手に入れた。`}).join('');
+  const outro=`こうして一日の冒険は幕を閉じた。${top.n}がもっとも輝いた日として、日誌に刻まれる。`;
+  return {title,sum,top,paras:[intro+body,outro],hint:sorted(total(state.entries)).pop().tip,t};
+}
+function dayKey(ts){const d=new Date(ts);return `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`}
+
+function renderDiary(){
+  const groups=groupDays(),keys=Object.keys(groups),n=keys.length,today=dayKey(Date.now());
+  $('#diary').innerHTML=keys.reverse().map((k,i)=>{
+    const es=groups[k],t=diaryOf(es),no=n-i,ai=state.diaries[k],fresh=ai&&ai.sig===sigOf(es);
+    const head=`<div class="day">冒険の記録 第${no}日　${k}${k===today?'　（今日）':''}</div>`;
+    const loot=`<div class="loot"><span>獲得経験値 ${t.sum}XP</span>${ABIL.filter(a=>t.t[a.k]).map(a=>`<span>${a.n} +${t.t[a.k]}</span>`).join('')}</div>`;
+    if(generating.has(k))return `<article class="page pending">${head}<h3>語り部が日誌を綴っています</h3><p>この日の冒険を思い返しています</p></article>`;
+    if(fresh)return `<article class="page">${head}<span class="badge">AI語り部</span><h3>${esc(ai.title||t.title)}</h3>
+      ${ai.body.split(/\n\n+/).map(p=>`<p>${esc(p)}</p>`).join('')}${loot}
+      ${ai.hint?`<div class="hint">明日への手がかり：${esc(ai.hint)}</div>`:''}
+      ${k===today?`<button class="btn" data-day="${k}">日誌を書き直す</button>`:''}</article>`;
+    const label=k===today?'今日の冒険を締めて、日誌を書く':'AIで日誌を書く';
+    return `<article class="page">${head}<span class="badge">${k===today?'まだ書かれていません':failed.has(k)?'AIを使えなかったため仮の日誌':'未作成'}</span><h3>${t.title}</h3>
+      ${k===today?`<p>今日の出来事：${es.map(e=>'「'+esc(e.text)+'」').join('')}</p>`:t.paras.map(p=>`<p>${p}</p>`).join('')}${loot}
+      <button class="btn" data-day="${k}">${label}</button></article>`}).join('')
+    ||'<div class="win"><p class="dim">まだ日誌はありません。最初の冒険を記しましょう。</p></div>';
+}
+
+function radar(svg,t){
+  const cx=180,cy=165,R=105,N=6,max=Math.max(10,Math.ceil(Math.max(...Object.values(t))/5)*5);
+  const pt=(i,r)=>{const a=-Math.PI/2+i*2*Math.PI/N;return[cx+r*Math.cos(a),cy+r*Math.sin(a)]};
+  const poly=r=>ABIL.map((_,i)=>pt(i,r).join(',')).join(' ');
+  let h='';
+  [.25,.5,.75,1].forEach(f=>h+=`<polygon points="${poly(R*f)}" fill="none" stroke="var(--dim)" stroke-opacity=".5" stroke-width="1"/>`);
+  ABIL.forEach((a,i)=>{const[x,y]=pt(i,R);h+=`<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="var(--dim)" stroke-opacity=".5"/>`});
+  h+=`<polygon points="${ABIL.map((a,i)=>pt(i,R*t[a.k]/max).join(',')).join(' ')}" fill="var(--gold)" fill-opacity=".3" stroke="var(--gold)" stroke-width="3" stroke-linejoin="miter"/>`;
+  ABIL.forEach((a,i)=>{
+    const[px,py]=pt(i,R*t[a.k]/max);h+=`<rect x="${px-4}" y="${py-4}" width="8" height="8" fill="var(--gold)"/>`;
+    const[x,y]=pt(i,R+24),anc=Math.abs(x-cx)<5?'middle':x>cx?'start':'end';
+    h+=`<text x="${x}" y="${y-2}" text-anchor="${anc}">${a.n}</text><text class="v" x="${x}" y="${y+13}" text-anchor="${anc}">${t[a.k]}</text>`;
+  });
+  svg.innerHTML=h;
+}
+
+function renderStatus(){
+  const t=total(state.entries),s=sorted(t),w=s[5],mx=Math.max(1,s[0] && t[s[0].k]);
+  radar($('#radar'),t);
+  $('#stats').innerHTML=ABIL.map(a=>`<div class="stat"><span>${a.n}</span><span class="track"><i style="width:${t[a.k]/mx*100}%"></i></span><span>${t[a.k]}</span></div>`).join('');
+  $('#swot').innerHTML=`<p>得意：${s[0].n}（${t[s[0].k]}XP）</p><p>伸びしろ：${w.n}（${t[w.k]}XP）</p><p class="dim" style="margin-top:6px">助言：${w.tip}</p>`;
+  $('#nameIn').value=state.name;
+  renderAiState();
+}
+async function renderAiState(msg){
+  await getSample();
+  const viaHost=!!SAMPLE||!!PROXY_URL,has=!!getKey();
+  $('#keyBox').hidden=viaHost;
+  $('#aiState').textContent=msg||(viaHost?'AIはサーバー経由で動いています。キーの設定は不要です。':has?'APIキーを保存済みです（'+PROV[getProv()].n+'）。AIが判定と日誌を担当します。':'AIが未接続です。キーを入れるまでは、簡易判定とテンプレート日誌で動きます。');
+}
+
+function renderReview(){
+  const days=+document.querySelector('[name=period]:checked').value,since=Date.now()-days*864e5;
+  const es=state.entries.filter(e=>e.t>=since),t=total(es),sum=Object.values(t).reduce((a,b)=>a+b,0),top=sorted(t)[0];
+  $('#sumline').innerHTML=es.length?`${days===7?'この1週間':'この1か月'}で<b>${es.length}件</b>の冒険を記し、合計<b style="color:var(--gold)">${sum}XP</b>を獲得。最も伸びたのは<b>${top.n}</b>です。`:'この期間の記録はまだありません。';
+  radar($('#radar2'),t);
+  $('#log').innerHTML=state.entries.slice().reverse().map(e=>{const d=new Date(e.t);
+    return `<div class="entry"><small>${d.getMonth()+1}/${d.getDate()}${e.sample?'<span class="sample">サンプル</span>':''}</small><span class="body">${esc(e.text)}</span>
+    <span>${e.gains.map(g=>`<span class="tag">${abil(g.k).n} +${g.v}</span>`).join('')}</span></div>`}).join('')||'<p class="dim">まだ記録がありません。</p>';
+  $('#clearSample').hidden=!state.entries.some(e=>e.sample);
+}
+
+function show(v){
+  document.querySelectorAll('[data-view]').forEach(s=>s.hidden=s.dataset.view!==v);
+  document.querySelectorAll('.menu button').forEach(b=>b.setAttribute('aria-selected',String((v==='judge'?'record':v)===b.dataset.tab)));
+  const li=lvInfo(),top=sorted(total(state.entries))[0];
+  $('#heroName').textContent=hero();$('#cls').textContent='〈'+top.cls+'〉';$('#lv').textContent='Lv.'+li.lv;
+  $('#lvbar').style.width=li.pct+'%';$('#nextxp').textContent='次まで'+li.rest;
+  try{
+    if(v==='judge'&&last)renderJudge();
+    if(v==='status')renderStatus();
+    if(v==='diary'){renderDiary();ensureDiaries()}
+    if(v==='review')renderReview();
+  }catch(err){console.error(err)}
+  window.scrollTo(0,0);
+}
+
+function renderJudge(){
+  const loading=!last||last.loading;
+  ['#gains','#reframe','#next'].forEach(s=>$(s).hidden=loading);
+  document.querySelector('#toDiary').hidden=document.querySelector('#again').hidden=loading;
+  if(loading){$('#levelup').hidden=true;$('#battle').innerHTML='<p style="--i:0;opacity:1">ゲームマスターが出来事を読んでいる…</p>';return}
+  const {entry,neg,lvUp}=last,lines=[];
+  if(neg)lines.push(`<p class="foe">〈${foeOf(entry)}〉があらわれた！</p>`);
+  lines.push(`<p>${esc(hero())}は「${esc(entry.text)}」${neg?'に立ち向かった！':'をやりとげた！'}</p>`);
+  if(neg)lines.push(`<p>〈${foeOf(entry)}〉をたおした！</p>`);
+  if(entry.reaction)lines.push(`<p>${esc(entry.reaction)}</p>`);
+  lines.push(`<p style="color:var(--gold)">${gStr(entry).replace(/\+/g,' の経験値 +')}を獲得！</p>`);
+  $('#battle').innerHTML=lines.map((l,i)=>l.replace('<p','<p style="--i:'+i+'"')).join('');
+  $('#gains').innerHTML=entry.gains.map(g=>`<div class="gain"><b>${abil(g.k).n}</b><span class="pt">+${g.v} UP!</span></div>`).join('');
+  const lu=$('#levelup');lu.hidden=!lvUp;if(lvUp)lu.textContent=`レベルアップ！　Lv.${lvUp[0]} → Lv.${lvUp[1]}`;
+  const top=abil(entry.gains[0].k).n;
+  $('#reframe').textContent=entry.reframe||(neg?`つらい出来事も、${top}を鍛える材料になりました。向き合って記したこと自体が成長です。`:`今日の積み重ねが${top}に反映されました。続けるほど、数字と図に表れます。`);
+  $('#next').textContent='軍師の提案：'+(entry.next||sorted(total(state.entries)).pop().tip)+'　日付が変わると、この冒険は日誌になります。';
+}
+
+async function submit(){
+  const text=$('#text').value.trim();
+  if(!text){$('#text').focus();return}
+  const mood=document.querySelector('[name=mood]:checked').value,before=lvInfo().lv;
+  $('#go').disabled=true;last={loading:true};show('judge');
+  const r=await aiJudge(text,mood);
+  const entry={t:Date.now(),text,mood,gains:r.gains,enemy:r.enemy||'',reaction:r.reaction||'',reframe:r.reframe||'',next:r.next||''};
+  state.entries.push(entry);save();
+  const after=lvInfo().lv;last={entry,neg:r.neg,lvUp:after>before?[before,after]:null};
+  $('#text').value='';$('#go').disabled=false;show('judge');
+}
+
+$('#examples').innerHTML=EXAMPLES.map(x=>`<button type="button">${x}</button>`).join('');
+$('#examples').onclick=e=>{if(e.target.tagName==='BUTTON'){$('#text').value=e.target.textContent;$('#text').focus()}};
+$('#go').onclick=submit;
+$('#keySave').onclick=async()=>{
+  const k=$('#keyIn').value.trim();if(!k){$('#keyIn').focus();return}
+  renderAiState('接続をテストしています…');
+  try{await keyAI(k,$('#provSel').value).json('次のJSONだけを返してください: {"ok":true}',{modelTier:'quick'});setKey(k);setProv($('#provSel').value);$('#keyIn').value='';renderAiState('接続できました。キーを保存しました。')}
+  catch(e){renderAiState('接続できませんでした：'+(e.message||'ネットワークエラー')+'（キーとネット接続を確認してください）')}
+};
+$('#provSel').innerHTML=Object.entries(PROV).map(([k,v])=>`<option value="${k}">${v.n}</option>`).join('');
+$('#provSel').value=getProv();
+$('#provSel').onchange=()=>{$('#keyIn').placeholder=PROV[$('#provSel').value].ph};
+$('#keyDel').onclick=()=>{setKey('');$('#keyIn').value='';renderAiState()};
+$('#diary').onclick=e=>{const b=e.target.closest('[data-day]');if(b)genDay(b.dataset.day)};
+$('#again').onclick=()=>show('record');
+$('#toDiary').onclick=()=>show('diary');
+document.querySelectorAll('.menu button').forEach(b=>b.onclick=()=>show(b.dataset.tab));
+document.querySelectorAll('[name=period]').forEach(r=>r.onchange=renderReview);
+$('#nameIn').oninput=e=>{state.name=e.target.value.trim();save();$('#heroName').textContent=hero()};
+$('#clearSample').onclick=()=>{state.entries=state.entries.filter(e=>!e.sample);save();show('review')};
+show('diary');
+</script>
