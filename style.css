@@ -174,3 +174,17 @@ details[open] summary { margin-bottom: 8px; }
 .pre { white-space: pre-line; }
 .prog.hp { height: 8px; border-width: 1px; margin: 2px 0; }
 .prog.hp i { background: var(--foe); }
+
+/* 目標の木 */
+.tree { display: flex; flex-direction: column; gap: 8px; }
+.node { background: #050830; border: 1px solid var(--dim); border-radius: 4px; padding: 6px 8px; display: flex; flex-direction: column; gap: 6px; }
+.node .node { margin-left: 12px; border-left: 3px solid var(--cyan); }
+.node.done { border-color: var(--hp); }
+.node.done > .nrow .btitle { text-decoration: line-through; opacity: .7; }
+.nrow { display: grid; grid-template-columns: 22px 48px 1fr; gap: 8px; align-items: start; }
+.tgl { font: inherit; background: none; border: 0; color: var(--gold); cursor: pointer; padding: 0; width: 22px; text-align: center; }
+.ico { width: 48px; height: 48px; image-rendering: pixelated; }
+.ntxt { min-width: 0; }
+.bact { display: flex; gap: 6px; flex-wrap: wrap; }
+.addrow { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+.addrow input { padding: 6px 10px; font-size: 14px; }

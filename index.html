@@ -22,11 +22,7 @@
         <div class="gauge"><span>EXP</span><div class="track"><i id="lvbar"></i></div><span id="nextxp"></span></div>
       </div>
       <canvas id="stage" width="320" height="140" aria-label="勇者と怪物の戦闘アニメーション"></canvas>
-      <div class="stagebar">
-        <button type="button" id="prevBoss" aria-label="前のボス">◀</button>
-        <span id="bossLabel" class="dim"></span>
-        <button type="button" id="nextBoss" aria-label="次のボス">▶</button>
-      </div>
+      <div class="stagebar"><span id="bossLabel" class="dim"></span></div>
     </div>
   </div>
 
@@ -64,9 +60,9 @@
     </div>
 
     <div class="win" data-step="2" hidden>
-      <h2>目指す姿</h2>
-      <p class="dim">なりたい職業・達成したい目標を教えてください。軍師(AI)が、必要な資格や教科書を提案します。</p>
-      <label class="fld">なりたい職業・目標<input type="text" id="obJob" maxlength="60" placeholder="例: Webエンジニア / 看護師 / 簿記の仕事"></label>
+      <h2>最終目標</h2>
+      <p class="dim">いちばん大きな目標(なりたい職業・達成したいこと)を教えてください。これが最大のボス(魔王)になります。軍師(AI)が、そこへ近づくための小さな目標に分けます。</p>
+      <label class="fld">最終目標<input type="text" id="obJob" maxlength="60" placeholder="例: Webエンジニア / 看護師 / 簿記の仕事"></label>
       <label class="fld">いまの状況(任意)<textarea id="obStatus" maxlength="400" placeholder="例: 大学2年。プログラミングは未経験。"></textarea></label>
       <div class="row">
         <button class="btn" id="obBack2">戻る</button>
@@ -75,13 +71,13 @@
     </div>
 
     <div class="win" data-step="3" hidden>
-      <h2>挑むボスを選ぶ</h2>
-      <p class="dim">チェックした目標がボスとして登場します。内容は後から変更できます。</p>
+      <h2>最初の小目標を選ぶ</h2>
+      <p class="dim">チェックした目標が、魔王の下の中ボスになります。あとから、どの目標もさらに細かく分けられます。</p>
       <p class="foe" id="obErr3" role="alert" hidden></p>
       <div id="candList" class="cands"></div>
       <details>
         <summary class="dim">自分で目標を追加する</summary>
-        <div class="addgoal" data-form="ob"></div>
+        <div class="addrow"><input type="text" id="obAddTitle" maxlength="60" placeholder="例: プログラミングを学ぶ" aria-label="小目標の名前"><button type="button" class="btn small primary" id="obAddGo">追加</button></div>
       </details>
       <div class="row">
         <button class="btn" id="obBack3">戻る</button>
@@ -115,23 +111,24 @@
 
   <section data-view="boss" hidden>
     <div class="win">
-      <h2>夢への道のり</h2>
+      <h2>最終目標への道のり</h2>
       <div id="jobBox" class="body"></div>
     </div>
-    <div class="win">
-      <h2>ボス一覧</h2>
-      <div id="bossList" class="bosses"></div>
+    <div class="win" id="splitWin" hidden>
+      <h2>軍師の提案</h2>
+      <p class="body" id="splitTitle"></p>
+      <p class="dim" id="splitMsg" hidden></p>
+      <p class="foe" id="splitErr" role="alert" hidden></p>
+      <div id="candList2" class="cands"></div>
+      <div class="row">
+        <button class="btn primary" id="addCands" hidden>選んだものを追加</button>
+        <button class="btn" id="closeSplit">閉じる</button>
+      </div>
     </div>
     <div class="win">
-      <h2>ボスを増やす</h2>
-      <button class="btn" id="aiMore">軍師にほかの目標を提案してもらう</button>
-      <p class="foe" id="moreErr" role="alert" hidden></p>
-      <div id="candList2" class="cands"></div>
-      <button class="btn primary" id="addCands" hidden>選んだ目標をボスにする</button>
-      <details>
-        <summary class="dim">自分で目標を追加する</summary>
-        <div class="addgoal" data-form="main"></div>
-      </details>
+      <h2>目標の木</h2>
+      <p class="dim">どの目標も「AIに分けてもらう」で、満足するまで細かく分けられます。いちばん小さい目標を「撃破した!」にすると、上の目標も順に倒れます。</p>
+      <div id="tree" class="tree"></div>
     </div>
   </section>
 
@@ -156,7 +153,7 @@
     <div class="win">
       <h2>勇者と目標</h2>
       <label class="fld">勇者の名前<input type="text" id="setName" maxlength="12"></label>
-      <label class="fld">目指す職業<input type="text" id="setJob" maxlength="60"></label>
+      <label class="fld">最終目標(目指す職業)<input type="text" id="setJob" maxlength="60"></label>
       <label class="fld">就職できる達成率(%)<input type="number" id="setThr" min="10" max="100"></label>
     </div>
     <div class="win">

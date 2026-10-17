@@ -4,7 +4,6 @@
  */
 
 const enc = new TextEncoder();
-const GOAL_TYPES = ['exam', 'textbook', 'project', 'experience'];
 const TOKEN_TTL = 60 * 60 * 24 * 30;
 const MAX_SAVE_BYTES = 300 * 1024;
 const AI_LIMIT_PER_HOUR = 60;
@@ -186,62 +185,53 @@ async function judge(req, env, user, cors) {
   }, 200, cors);
 }
 
-const PLAN_SCHEMA = {
+const SPLIT_SCHEMA = {
   type: 'OBJECT',
   properties: {
-    goals: {
+    actionable: { type: 'BOOLEAN' },
+    note: { type: 'STRING' },
+    steps: {
       type: 'ARRAY',
       items: {
         type: 'OBJECT',
-        properties: {
-          title: { type: 'STRING' },
-          type: { type: 'STRING', enum: GOAL_TYPES },
-          xp: { type: 'INTEGER' },
-          req: { type: 'BOOLEAN' },
-          desc: { type: 'STRING' }
-        },
-        required: ['title', 'type', 'xp', 'req', 'desc']
+        properties: { title: { type: 'STRING' }, desc: { type: 'STRING' } },
+        required: ['title', 'desc']
       }
     }
   },
-  required: ['goals']
+  required: ['actionable', 'note', 'steps']
 };
 
-async function plan(req, env, user, cors) {
+async function split(req, env, user, cors) {
   const body = await readJson(req);
-  const job = str(body?.job, 60).trim();
-  if (!job) return reply({ error: '職業を入力してください。' }, 400, cors);
+  const path = (Array.isArray(body?.path) ? body.path : []).slice(0, 12).map(s => str(s, 60).trim()).filter(Boolean);
+  if (!path.length) return reply({ error: '目標が空です。' }, 400, cors);
   const status = str(body?.status, 400).trim();
-  const exclude = (Array.isArray(body?.exclude) ? body.exclude : []).slice(0, 30).map(s => str(s, 60));
+  const existing = (Array.isArray(body?.existing) ? body.existing : []).slice(0, 30).map(s => str(s, 60));
   if (!await aiAllowed(env, user)) return reply({ error: 'AIの利用上限に達しました。しばらくお待ちください。' }, 429, cors);
 
+  const target = path[path.length - 1];
   const prompt = [
-    '次の職業を目指す人のために、達成すべき「具体的な目標」を 6〜10 件提案してください。',
-    '- 具体的であること。例: 「基本情報技術者試験に合格する」「『○○入門』を最後まで読み終える」「ポートフォリオを1つ公開する」。「勉強する」のような曖昧な目標は禁止。',
+    'ユーザーの目標を、一段階だけ小さな目標に分けてください。',
+    `分ける対象: 「${target}」`,
+    path.length > 1 ? `上位の目標(大きい順): ${path.slice(0, -1).join(' → ')}` : 'これは最終目標です。',
+    '- steps: 3〜6 個。対象を達成するために必要な、より小さく具体的な目標。上位の目標とは別の観点で分ける。',
+    '- 具体的であること。例: 「基本情報技術者試験に合格する」「『○○入門』を最後まで読み終える」「インターンの応募時期を調べる」。「勉強する」のような曖昧な表現は禁止。',
     '- 実在する資格・試験名、定番の教科書名を優先。確信が持てない書名は作らず、「〇〇の入門書を1冊読み終える」のように書く。',
-    '- type: exam=資格・試験, textbook=教科書・教材, project=作品・制作, experience=実務・経験。種類を偏らせない。',
-    '- xp: 目標の大きさ(10〜200)。大きいほど撃破ボーナスと怪物の強さが上がる。短期の教材は10〜40、中規模は50〜100、難関資格や大作は120〜200。',
-    '- req: 職業に就くうえで必須に近いなら true。',
-    '- desc: 取り組み方の目安を60文字以内で。',
-    '- title は40文字以内。',
-    `目指す職業: ${job}`,
+    '- title は40文字以内。desc は取り組み方の目安を60文字以内で。',
+    '- actionable: 対象がすでに「明日から取りかかれて、1〜2日程度で終わる具体的な行動」なら true にし、steps は空にして、note に「このまま取り組めます」という一言(40文字以内)を書く。それ以外は false で、note は空文字。',
     `現状: ${status || '未入力'}`,
-    exclude.length ? `すでにある目標(重複禁止): ${exclude.join(' / ')}` : ''
+    existing.length ? `すでにある子目標(重複禁止): ${existing.join(' / ')}` : ''
   ].filter(Boolean).join('\n');
 
-  const out = await gemini(env, prompt, PLAN_SCHEMA);
-  const goals = (Array.isArray(out?.goals) ? out.goals : [])
-    .filter(g => g && g.title && GOAL_TYPES.includes(g.type))
-    .slice(0, 12)
-    .map(g => ({
-      title: str(g.title, 60),
-      type: g.type,
-      xp: clamp(g.xp, 10, 200),
-      req: !!g.req,
-      desc: str(g.desc, 100)
-    }));
-  if (!goals.length) throw new Error('bad_output');
-  return reply({ goals }, 200, cors);
+  const out = await gemini(env, prompt, SPLIT_SCHEMA);
+  const actionable = !!out?.actionable;
+  const steps = (Array.isArray(out?.steps) ? out.steps : [])
+    .filter(g => g && g.title)
+    .slice(0, 8)
+    .map(g => ({ title: str(g.title, 60).trim(), desc: str(g.desc, 100) }));
+  if (!actionable && !steps.length) throw new Error('bad_output');
+  return reply({ actionable: actionable && !steps.length, note: str(out?.note, 80), steps: actionable ? [] : steps }, 200, cors);
 }
 
 /* ---------- ルーティング ---------- */
@@ -261,7 +251,7 @@ export default {
       if (path === '/save' && req.method === 'GET') return await getSave(env, user, cors);
       if (path === '/save' && req.method === 'PUT') return await putSave(req, env, user, cors);
       if (path === '/judge' && req.method === 'POST') return await judge(req, env, user, cors);
-      if (path === '/plan' && req.method === 'POST') return await plan(req, env, user, cors);
+      if (path === '/split' && req.method === 'POST') return await split(req, env, user, cors);
 
       return reply({ error: 'Not found' }, 404, cors);
     } catch (e) {

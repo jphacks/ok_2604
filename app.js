@@ -16,7 +16,8 @@ const MODIFIERS = [
   [['始めた', '挑戦', '試した', '着手'], 1]
 ];
 const NEG = ['怒られ', '叱られ', '失敗', '落ち込', '嫌', 'つらい', '辛い', 'ミス', '断られ', '振られ', '疲', '最悪', '意味がな', '泣', '恥ずか'];
-const TYPES = { exam: '資格・試験', textbook: '教科書・教材', project: '作品・制作', experience: '実務・経験' };
+/* 撃破の経験値(木の浅い層=大きい目標ほど多い) */
+const EXP_BY_DEPTH = [200, 100, 50, 25, 10];
 
 /* 装備:レベルで解放(3段階ずつ) */
 const GEAR = [
@@ -54,23 +55,38 @@ const K_SESSION = 'liferpg.v3.session';
 const K_API = 'liferpg.v3.api';
 const saveKey = () => 'liferpg.v3.save.' + (session && !session.guest ? session.user.toLowerCase() : '_guest');
 
-const newState = () => ({ v: 3, hero: '', job: '', status: '', onboarded: false, employed: false, threshold: 80, goals: [], entries: [] });
+const newState = () => ({ v: 3, hero: '', job: '', status: '', onboarded: false, employed: false, threshold: 80, goals: [], focus: '', entries: [] });
 
 let session = null;
 let state = newState();
 let cands = [];
 let busy = false;
 
+function normalizeGoals(list, job) {
+  const src = (Array.isArray(list) ? list : []).filter(g => g && g.title);
+  const hasTree = src.some(g => 'parentId' in g);
+  const nodes = src.map(g => ({
+    id: String(g.id || uid()), parentId: hasTree && g.parentId ? String(g.parentId) : null,
+    title: String(g.title).slice(0, 60), desc: String(g.desc || '').slice(0, 100),
+    done: !!g.done, doneAt: g.doneAt || 0, collapsed: !!g.collapsed
+  }));
+  if (!hasTree && nodes.length) {
+    const root = { id: uid(), parentId: null, title: String(job || '最終目標').slice(0, 60), desc: '', done: false, doneAt: 0, collapsed: false };
+    nodes.forEach(n => n.parentId = root.id);
+    nodes.unshift(root);
+  }
+  const ids = new Set(nodes.map(n => n.id));
+  const rootId = (nodes.find(n => !n.parentId) || {}).id;
+  nodes.forEach(n => { if (n.parentId && !ids.has(n.parentId)) n.parentId = rootId && n.id !== rootId ? rootId : null; });
+  return nodes;
+}
+
 function normalize(s) {
   const base = newState();
   if (!s || typeof s !== 'object') return base;
   const o = { ...base, ...s, v: 3 };
-  o.goals = (Array.isArray(s.goals) ? s.goals : []).filter(g => g && g.title).map(g => {
-    return {
-      id: String(g.id || uid()), title: String(g.title).slice(0, 60), type: TYPES[g.type] ? g.type : 'project',
-      xp: clampInt(g.xp, 5, 300) || 30, req: !!g.req, desc: String(g.desc || '').slice(0, 100), done: !!g.done, doneAt: g.doneAt || 0
-    };
-  });
+  o.goals = normalizeGoals(s.goals, s.job);
+  o.focus = String(s.focus || '');
   o.entries = (Array.isArray(s.entries) ? s.entries : []).filter(e => e && (e.exp != null || Array.isArray(e.gains))).map(e => ({
     t: Number(e.t) || Date.now(), text: String(e.text || '').slice(0, 500), mood: e.mood || 'flat',
     exp: e.exp != null ? clampInt(e.exp, 0, 1000) : e.gains.reduce((a, g) => a + (+g.v || 0), 0)
@@ -81,7 +97,7 @@ function normalize(s) {
 
 /* 経験値 = 日々の記録 + 撃破したボスの報酬 */
 function totalExp() {
-  return state.entries.reduce((a, e) => a + e.exp, 0) + state.goals.reduce((a, g) => a + (g.done ? g.xp : 0), 0);
+  return state.entries.reduce((a, e) => a + e.exp, 0) + state.goals.reduce((a, g) => a + (g.done ? expOfDepth(depthOf(g)) : 0), 0);
 }
 
 function lvInfo() {
@@ -99,10 +115,8 @@ function gearTiers(lv = lvInfo().lv) {
 }
 
 function progress() {
-  const w = g => g.req ? 2 : 1;
-  const all = state.goals.reduce((a, g) => a + w(g), 0);
-  const done = state.goals.reduce((a, g) => a + (g.done ? w(g) : 0), 0);
-  return all ? Math.round(done / all * 100) : 0;
+  const leaves = state.goals.filter(isLeaf);
+  return leaves.length ? Math.round(leaves.filter(g => g.done).length / leaves.length * 100) : 0;
 }
 
 const snapshot = () => ({ lv: lvInfo().lv, gear: gearTiers() });
@@ -235,14 +249,65 @@ function renderResult(r) {
   $('#result').hidden = false;
 }
 
-/* ================= ボス(目標) ================= */
-function bossesActive() {
-  return state.goals.filter(g => !g.done).map(g => ({ id: g.id, title: g.title, xp: g.xp }));
+/* ================= 目標の木 ================= */
+let addingFor = '';
+let splitFor = '';
+
+const byId = id => state.goals.find(g => g.id === id);
+const kids = id => state.goals.filter(g => g.parentId === id);
+const rootNode = () => state.goals.find(g => !g.parentId);
+const isLeaf = g => !state.goals.some(x => x.parentId === g.id);
+const tierOfDepth = d => Math.max(0, 4 - d);
+const expOfDepth = d => EXP_BY_DEPTH[Math.min(d, EXP_BY_DEPTH.length - 1)];
+
+function depthOf(g) {
+  let d = 0, p = g;
+  while (p && p.parentId && d < 50) { p = byId(p.parentId); d++; }
+  return d;
+}
+function pathTitles(g) {
+  const a = []; let p = g, n = 0;
+  while (p && n++ < 20) { a.unshift(p.title); p = p.parentId ? byId(p.parentId) : null; }
+  return a;
+}
+function descendants(id) {
+  const out = [], stack = [id];
+  while (stack.length) kids(stack.pop()).forEach(k => { out.push(k); stack.push(k.id); });
+  return out;
+}
+function leafCount(id) {
+  const ls = descendants(id).filter(isLeaf);
+  return ls.length ? { done: ls.filter(x => x.done).length, total: ls.length } : null;
+}
+
+/* 子が全部撃破されたら親も撃破、1つでも未達成なら親は未達成に戻す */
+function syncUp(startId) {
+  let p = byId(startId);
+  while (p) {
+    const ks = kids(p.id);
+    if (ks.length) {
+      const all = ks.every(k => k.done);
+      if (all !== p.done) { p.done = all; p.doneAt = all ? Date.now() : 0; }
+    }
+    p = p.parentId ? byId(p.parentId) : null;
+  }
+}
+
+const doneIds = () => new Set(state.goals.filter(g => g.done).map(g => g.id));
+const stageBoss = g => ({ id: g.id, title: g.title, tier: tierOfDepth(depthOf(g)) });
+
+/* アニメに映すボス:選んだもの → なければ最終目標(魔王) */
+function focusNode() {
+  const f = state.focus && byId(state.focus);
+  if (f && !f.done) return f;
+  const r = rootNode();
+  return r && !r.done ? r : null;
 }
 
 function refreshStage() {
   Stage.setGear(gearTiers());
-  Stage.setBosses(bossesActive());
+  const f = focusNode();
+  Stage.setBosses(f ? [stageBoss(f)] : []);
 }
 
 function refreshHud() {
@@ -258,125 +323,191 @@ function refreshHud() {
   if (active === 'boss') renderBossTab();
 }
 
-function defeatGoal(g, delay) {
-  g.done = true; g.doneAt = Date.now();
-  setTimeout(() => Stage.playDefeat({ id: g.id, title: g.title, xp: g.xp }, refreshStage), delay);
-  toast(`${g.title} を撃破!`, `ボーナス +${g.xp} EXP`);
+/* 木を変えたあとの共通処理:撃破の演出・保存・表示更新・レベルアップ通知 */
+function finishChange(prevDone, before) {
+  const newly = state.goals.filter(g => g.done && !prevDone.has(g.id)).sort((a, b) => depthOf(b) - depthOf(a));
+  save();
+  if (newly.length) {
+    toast(...newly.slice(0, 4).map(g => `${g.title} を撃破! +${expOfDepth(depthOf(g))} EXP`));
+    Stage.playDefeat(stageBoss(newly[newly.length - 1]), refreshStage);
+  } else refreshStage();
+  refreshHud();
+  announce(before);
 }
 
-function toggleGoal(id) {
-  const g = state.goals.find(x => x.id === id);
+function tickLeaf(id) {
+  const g = byId(id);
+  if (!g || !isLeaf(g)) return;
+  const prev = doneIds(), before = snapshot();
+  g.done = !g.done; g.doneAt = g.done ? Date.now() : 0;
+  syncUp(g.id);
+  finishChange(prev, before);
+}
+
+function addChild(parentId, title, desc = '') {
+  const p = byId(parentId), t = String(title).trim().slice(0, 60);
+  if (!p || !t) return null;
+  const n = { id: uid(), parentId, title: t, desc: String(desc).slice(0, 100), done: false, doneAt: 0, collapsed: false };
+  state.goals.push(n);
+  p.collapsed = false;
+  syncUp(parentId);
+  return n;
+}
+
+function removeNode(id) {
+  const g = byId(id);
   if (!g) return;
-  const before = snapshot();
-  if (!g.done) defeatGoal(g, 0);
-  else { g.done = false; g.doneAt = 0; refreshStage(); }
-  save(); refreshHud();
-  if (g.done) announce(before);
+  const n = descendants(id).length;
+  if (!confirm(`「${g.title}」を削除しますか?` + (n ? `\n下の ${n} 件の目標も一緒に消えます。` : '') + '\n撃破済みの経験値も減ります。')) return;
+  const prev = doneIds(), before = snapshot(), parentId = g.parentId;
+  const gone = new Set([id, ...descendants(id).map(x => x.id)]);
+  state.goals = state.goals.filter(x => !gone.has(x.id));
+  if (parentId) syncUp(parentId);
+  if (gone.has(addingFor)) addingFor = '';
+  if (gone.has(splitFor)) { splitFor = ''; $('#splitWin').hidden = true; }
+  finishChange(prev, before);
 }
 
-function removeGoal(id) {
-  const g = state.goals.find(x => x.id === id);
-  if (!g || !confirm(`「${g.title}」を削除しますか?` + (g.done ? '\n獲得済みのボーナス経験値も減ります。' : ''))) return;
-  state.goals = state.goals.filter(x => x.id !== id);
-  save(); refreshHud(); refreshStage();
-}
-
-function makeGoal(f) {
-  return {
-    id: uid(), title: String(f.title).trim().slice(0, 60), type: TYPES[f.type] ? f.type : 'project',
-    xp: clampInt(f.xp, 5, 300) || 30, req: !!f.req, desc: String(f.desc || '').slice(0, 100), done: false, doneAt: 0
-  };
-}
-
-function drawThumb(canvas, xp) {
-  const m = MONSTERS[tierOfXp(xp)], ctx = canvas.getContext('2d');
+function drawThumb(canvas, tier) {
+  const m = MONSTERS[tier], ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.imageSmoothingEnabled = false;
   const s = Math.max(1, Math.floor(canvas.width / 16));
   drawGrid(ctx, m.art, m.pal, 0, Math.max(0, canvas.height - m.art.length * s), s);
 }
 
-function goalMeta(g) {
-  return `${MONSTERS[tierOfXp(g.xp)].name} ・ ${TYPES[g.type]} ・ 撃破で +${g.xp} EXP${g.req ? '<span class="req">必須</span>' : ''}`;
-}
-
 function renderBossTab() {
-  const p = progress(), ready = !state.employed && state.goals.length && p >= state.threshold;
+  const root = rootNode(), p = progress();
   let box = '';
-  if (!state.job) box = '<p class="dim">せっていで「目指す職業」を入力すると表示されます。</p>';
-  else {
-    if (state.employed) box += `<div class="job-unlocked"><h3>★ 現在の職業:${esc(state.job)}</h3><p class="dim">夢をかなえました!新しいボスで次の冒険へ。</p></div>`;
+  if (!root) {
+    box = `<p class="dim">最終目標がまだありません。いちばん大きな目標(なりたい姿)を入力しましょう。</p>
+      <input type="text" id="rootTitle" maxlength="60" placeholder="例: ゲーム開発の仕事に就く" aria-label="最終目標">
+      <button class="btn primary" data-act="addRoot">最終目標を決める</button>`;
+  } else {
+    const ready = !state.employed && p >= state.threshold;
+    if (state.employed) box += `<div class="job-unlocked"><h3>★ 現在の職業:${esc(state.job)}</h3><p class="dim">夢をかなえました!</p></div>`;
     else if (ready) box += `<div class="job-unlocked"><h3>🎉 就職条件クリア!</h3><p class="dim">達成率が ${state.threshold}% を超えました。</p><button class="btn primary" data-act="employ">この職業に就く!</button></div>`;
-    box += `<p>目指す姿:<b style="color:var(--gold)">${esc(state.job)}</b></p>
+    box += `<p>最終目標:<b style="color:var(--gold)">${esc(root.title)}</b></p>
       <div class="prog" role="progressbar" aria-valuenow="${p}" aria-valuemin="0" aria-valuemax="100"><i style="width:${p}%"></i></div>
-      <p class="dim">達成率 ${p}%(就職の目安 ${state.threshold}% / 必須の目標は2倍で計算)</p>`;
+      <p class="dim">達成率 ${p}%(いちばん小さい目標のうち撃破した割合 / 就職の目安 ${state.threshold}%)</p>`;
   }
   $('#jobBox').innerHTML = box;
-
-  const list = state.goals.slice().sort((a, b) => a.done - b.done || b.req - a.req || b.xp - a.xp);
-  $('#bossList').innerHTML = list.map(g => `
-    <div class="boss ${g.done ? 'done' : ''}">
-      <canvas width="64" height="64" data-xp="${g.xp}"></canvas>
-      <div><div class="btitle">${esc(g.title)}</div><div class="bmeta">${goalMeta(g)}</div>
-        ${g.desc ? `<div class="bdesc">${esc(g.desc)}</div>` : ''}</div>
-      <div class="bact">
-        <button class="btn small ${g.done ? '' : 'primary'}" data-act="toggle" data-id="${g.id}">${g.done ? '撃破を取り消す' : '撃破した!'}</button>
-        <button class="btn small" data-act="remove" data-id="${g.id}">削除</button>
-      </div>
-    </div>`).join('') || '<p class="dim">ボスがまだいません。下の「ボスを増やす」から追加しましょう。</p>';
-  $$('#bossList canvas').forEach(c => drawThumb(c, +c.dataset.xp));
-  renderCandList('#candList2');
-  $('#addCands').hidden = !cands.length;
+  renderTree();
 }
 
-function renderCandList(sel) {
-  const host = $(sel);
+function renderTree() {
+  const root = rootNode(), host = $('#tree');
+  if (!root) { host.innerHTML = ''; return; }
+  const draw = (g, d) => {
+    const ks = kids(g.id), lc = leafCount(g.id), open = !g.collapsed, tier = tierOfDepth(d);
+    const meta = `${MONSTERS[tier].name}${lc ? ` ・ ${lc.done}/${lc.total}` : ''}${g.done ? ' ・ 撃破!' : ''}`;
+    return `<div class="node ${g.done ? 'done' : ''}">
+      <div class="nrow">
+        ${ks.length ? `<button class="tgl" data-act="fold" data-id="${g.id}" aria-label="${open ? '閉じる' : '開く'}">${open ? '▾' : '▸'}</button>` : '<span class="tgl"></span>'}
+        <canvas class="ico" width="48" height="48" data-tier="${tier}"></canvas>
+        <div class="ntxt"><div class="btitle">${esc(g.title)}</div><div class="bmeta">${meta}</div>${g.desc ? `<div class="bdesc">${esc(g.desc)}</div>` : ''}</div>
+      </div>
+      <div class="bact">
+        ${ks.length ? '' : `<button class="btn small ${g.done ? '' : 'primary'}" data-act="tick" data-id="${g.id}">${g.done ? '撃破を取り消す' : '撃破した!'}</button>`}
+        ${g.done ? '' : `<button class="btn small" data-act="show" data-id="${g.id}">アニメに映す</button>`}
+        <button class="btn small" data-act="split" data-id="${g.id}">AIに分けてもらう</button>
+        <button class="btn small" data-act="addOpen" data-id="${g.id}">子目標を追加</button>
+        <button class="btn small" data-act="remove" data-id="${g.id}">削除</button>
+      </div>
+      ${addingFor === g.id ? `<div class="addrow"><input type="text" id="addTitle" maxlength="60" placeholder="子目標の名前" aria-label="子目標の名前"><button class="btn small primary" data-act="addGo" data-id="${g.id}">追加</button></div>` : ''}
+      ${open ? ks.map(k => draw(k, d + 1)).join('') : ''}
+    </div>`;
+  };
+  host.innerHTML = draw(root, 0);
+  host.querySelectorAll('canvas').forEach(c => drawThumb(c, +c.dataset.tier));
+  const input = $('#addTitle');
+  if (input) input.focus();
+}
+
+function renderCandList(sel, depth) {
+  const host = $(sel), tier = tierOfDepth(depth);
   host.innerHTML = cands.map((c, i) => `
     <label class="cand">
       <input type="checkbox" data-cand="${i}" ${c.chosen ? 'checked' : ''}>
-      <canvas width="48" height="48" data-xp="${c.xp}"></canvas>
-      <span><span class="btitle">${esc(c.title)}</span><br><span class="bmeta">${goalMeta(c)}</span>${c.desc ? `<br><span class="bdesc">${esc(c.desc)}</span>` : ''}</span>
+      <canvas width="48" height="48" data-tier="${tier}"></canvas>
+      <span><span class="btitle">${esc(c.title)}</span>${c.desc ? `<br><span class="bdesc">${esc(c.desc)}</span>` : ''}</span>
     </label>`).join('') || '<p class="dim">候補はまだありません。</p>';
-  host.querySelectorAll('canvas').forEach(c => drawThumb(c, +c.dataset.xp));
+  host.querySelectorAll('canvas').forEach(c => drawThumb(c, +c.dataset.tier));
 }
 
-async function fetchCands(job, status, exclude) {
-  const r = await api('/plan', { method: 'POST', body: { job, status, exclude } });
-  return (r.goals || []).filter(g => g && g.title).map(g => ({ ...makeGoal(g), chosen: !!g.req }));
+async function fetchSplit(path, existing) {
+  const r = await api('/split', { method: 'POST', body: { path, status: state.status, existing } });
+  return {
+    actionable: !!r.actionable, note: String(r.note || '').slice(0, 80),
+    steps: (r.steps || []).filter(x => x && x.title).map(x => ({ title: String(x.title).slice(0, 60), desc: String(x.desc || '').slice(0, 100), chosen: true }))
+  };
 }
 
 function explain(e) {
-  if (e.code === 'NO_SERVER') return 'AI機能にはサーバー(Worker)のURLが必要です。ログイン画面の「サーバー設定」で入力できます。下から手動で目標を追加することもできます。';
-  if (e.code === 'NO_AUTH') return 'ゲストモードではAI提案を使えません。アカウント登録すると利用できます。下から手動で目標を追加できます。';
-  return `${e.message} 下から手動で目標を追加することもできます。`;
+  if (e.code === 'NO_SERVER') return 'AI機能にはサーバー(Worker)のURLが必要です。ログイン画面の「サーバー設定」で入力できます。自分で目標を追加することもできます。';
+  if (e.code === 'NO_AUTH') return 'ゲストモードではAIを使えません。アカウント登録すると利用できます。自分で目標を追加することもできます。';
+  return `${e.message} 自分で目標を追加することもできます。`;
 }
 
-/* 目標の手動追加フォーム */
-function buildAddForms() {
-  $$('.addgoal').forEach(host => {
-    host.innerHTML = `
-      <input type="text" data-f="title" maxlength="60" placeholder="例: 基本情報技術者試験に合格する" aria-label="目標のタイトル">
-      <div class="two">
-        <select data-f="type" aria-label="種類">${Object.entries(TYPES).map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select>
-        <input type="number" data-f="xp" min="5" max="300" value="40" aria-label="撃破ボーナスEXP" title="撃破ボーナスEXP">
-      </div>
-      <label class="chk"><input type="checkbox" data-f="req">必須の目標</label>
-      <button type="button" class="btn small" data-act="addManual" data-form="${host.dataset.form}">ボスとして追加</button>`;
-  });
+/* 「AIに分けてもらう」:提案を見て、チェックしたものだけ追加。何度でも繰り返せる */
+async function openSplit(id) {
+  const g = byId(id);
+  if (!g || busy) return;
+  busy = true; splitFor = id; cands = [];
+  const win = $('#splitWin');
+  win.hidden = false;
+  $('#splitTitle').textContent = `「${g.title}」を軍師が考え中…`;
+  $('#splitMsg').hidden = true; $('#splitErr').hidden = true;
+  $('#candList2').innerHTML = ''; $('#addCands').hidden = true;
+  win.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  try {
+    const r = await fetchSplit(pathTitles(g), kids(g.id).map(k => k.title));
+    $('#splitTitle').textContent = `「${g.title}」`;
+    if (r.actionable) {
+      $('#splitMsg').textContent = r.note || 'これ以上分けなくても、そのまま取り組めそうです。';
+      $('#splitMsg').hidden = false;
+    } else {
+      cands = r.steps;
+      renderCandList('#candList2', depthOf(g) + 1);
+      $('#splitMsg').textContent = '追加したいものにチェックしてください。しっくりこなければ、もう一度「AIに分けてもらう」を押せます。';
+      $('#splitMsg').hidden = false;
+      $('#addCands').hidden = !cands.length;
+    }
+  } catch (e) {
+    if (e.status === 401) { logout('セッションが切れました。もう一度ログインしてください。'); return; }
+    $('#splitTitle').textContent = `「${g.title}」`;
+    $('#splitErr').textContent = explain(e); $('#splitErr').hidden = false;
+  } finally { busy = false; }
 }
 
-function addManual(btn) {
-  const host = btn.closest('.addgoal');
-  const val = f => host.querySelector(`[data-f=${f}]`);
-  const title = val('title').value.trim();
-  if (!title) { val('title').focus(); return; }
-  const g = makeGoal({ title, type: val('type').value, xp: val('xp').value, req: val('req').checked });
-  val('title').value = '';
-  if (btn.dataset.form === 'ob') {
-    cands.push({ ...g, chosen: true }); renderCandList('#candList');
-  } else {
-    state.goals.push(g); save(); refreshStage(); renderBossTab(); toast('ボスがあらわれた!');
-  }
+function addChosen() {
+  const p = byId(splitFor), chosen = cands.filter(c => c.chosen);
+  if (!p || !chosen.length) { toast('追加する目標をチェックしてください'); return; }
+  if (p.done && !confirm(`「${p.title}」は撃破済みです。子目標を足すと、未達成に戻ります。`)) return;
+  const prev = doneIds(), before = snapshot();
+  chosen.forEach(c => addChild(p.id, c.title, c.desc));
+  cands = []; splitFor = ''; $('#splitWin').hidden = true;
+  finishChange(prev, before);
+  toast('新しい目標を追加しました');
+}
+
+function addManualChild(id) {
+  const input = $('#addTitle'), p = byId(id);
+  const title = input ? input.value.trim() : '';
+  if (!p) return;
+  if (!title) { if (input) input.focus(); return; }
+  if (p.done && !confirm(`「${p.title}」は撃破済みです。子目標を足すと、未達成に戻ります。`)) return;
+  const prev = doneIds(), before = snapshot();
+  addChild(id, title);
+  finishChange(prev, before);
+}
+
+function addRoot() {
+  const title = ($('#rootTitle').value || '').trim();
+  if (!title) { $('#rootTitle').focus(); return; }
+  const root = { id: uid(), parentId: null, title: title.slice(0, 60), desc: '', done: false, doneAt: 0, collapsed: false };
+  state.goals = [root]; state.job = root.title; state.focus = root.id;
+  save(); refreshStage(); renderBossTab();
 }
 
 /* ================= ステータス(EXPとレベル・装備のみ) ================= */
@@ -498,12 +629,14 @@ async function planGoals() {
   state.job = job; state.status = $('#obStatus').value.trim();
   busy = true; $('#obPlan').disabled = true; $('#obPlan').textContent = '軍師が考え中…';
   try {
-    cands = await fetchCands(job, state.status, []);
-    renderCandList('#candList');
+    const r = await fetchSplit([job], []);
+    cands = r.steps;
+    renderCandList('#candList', 1);
+    if (r.actionable) { const e3 = $('#obErr3'); e3.textContent = r.note || 'このまま取り組めそうです。'; e3.hidden = false; }
     step(3);
   } catch (e) {
     if (e.status === 401) { logout('セッションが切れました。もう一度ログインしてください。'); return; }
-    cands = []; renderCandList('#candList');
+    cands = []; renderCandList('#candList', 1);
     const e3 = $('#obErr3'); e3.textContent = explain(e); e3.hidden = false;
     step(3);
   } finally {
@@ -513,8 +646,10 @@ async function planGoals() {
 
 function finishOnboard() {
   const chosen = cands.filter(c => c.chosen);
-  if (!chosen.length && !confirm('ボスが選ばれていません。このまま冒険に出ますか?(あとで追加できます)')) return;
-  state.goals = chosen.map(({ chosen: _c, ...g }) => g);
+  const root = { id: uid(), parentId: null, title: state.job.slice(0, 60), desc: '', done: false, doneAt: 0, collapsed: false };
+  state.goals = [root];
+  chosen.forEach(c => addChild(root.id, c.title, c.desc));
+  state.focus = root.id;
   state.onboarded = true;
   cands = [];
   save(); refreshStage();
@@ -524,8 +659,6 @@ function finishOnboard() {
 
 /* ================= イベント ================= */
 function bind() {
-  buildAddForms();
-
   $$('[name=authMode]').forEach(r => r.onchange = () => {
     const reg = r.value === 'register' && r.checked;
     if (r.checked) { $('#authGo').textContent = reg ? '登録してはじめる' : 'ログインする'; $('#authPass').autocomplete = reg ? 'new-password' : 'current-password'; }
@@ -544,11 +677,14 @@ function bind() {
   $('#obBack3').onclick = () => step(2);
   $('#obPlan').onclick = planGoals;
   $('#obStart').onclick = finishOnboard;
+  $('#obAddGo').onclick = () => {
+    const t = $('#obAddTitle').value.trim();
+    if (!t) { $('#obAddTitle').focus(); return; }
+    cands.push({ title: t, desc: '', chosen: true }); $('#obAddTitle').value = ''; renderCandList('#candList', 1);
+  };
 
   $('#go').onclick = submit;
   $$('.menu button').forEach(b => b.onclick = () => show(b.dataset.tab));
-  $('#prevBoss').onclick = () => Stage.step(-1);
-  $('#nextBoss').onclick = () => Stage.step(1);
 
   document.addEventListener('change', e => {
     const i = e.target.dataset && e.target.dataset.cand;
@@ -558,42 +694,37 @@ function bind() {
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-act]');
     if (!b) return;
-    const id = b.dataset.id;
-    if (b.dataset.act === 'toggle') toggleGoal(id);
-    else if (b.dataset.act === 'remove') removeGoal(id);
-    else if (b.dataset.act === 'addManual') addManual(b);
-    else if (b.dataset.act === 'employ') {
+    const id = b.dataset.id, act = b.dataset.act;
+    if (act === 'tick') tickLeaf(id);
+    else if (act === 'remove') removeNode(id);
+    else if (act === 'fold') { const g = byId(id); if (g) { g.collapsed = !g.collapsed; save(); renderTree(); } }
+    else if (act === 'show') { state.focus = id; save(); refreshStage(); window.scrollTo({ top: 0, behavior: 'smooth' }); toast('アニメに映しました'); }
+    else if (act === 'split') openSplit(id);
+    else if (act === 'addOpen') { addingFor = addingFor === id ? '' : id; renderTree(); }
+    else if (act === 'addGo') addManualChild(id);
+    else if (act === 'addRoot') addRoot();
+    else if (act === 'employ') {
       state.employed = true; save(); refreshHud(); renderBossTab();
       toast(`おめでとう!${state.job}になった!`);
     }
   });
 
-  $('#aiMore').onclick = async () => {
-    if (busy) return;
-    const err = $('#moreErr'); err.hidden = true;
-    if (!state.job) { err.textContent = '先に「せってい」で目指す職業を入力してください。'; err.hidden = false; return; }
-    busy = true; $('#aiMore').disabled = true; $('#aiMore').textContent = '軍師が考え中…';
-    try {
-      cands = await fetchCands(state.job, state.status, state.goals.map(g => g.title));
-      cands.forEach(c => c.chosen = false);
-      renderBossTab();
-    } catch (e) {
-      if (e.status === 401) { logout('セッションが切れました。もう一度ログインしてください。'); return; }
-      err.textContent = explain(e); err.hidden = false;
-    } finally {
-      busy = false; $('#aiMore').disabled = false; $('#aiMore').textContent = '軍師にほかの目標を提案してもらう';
-    }
-  };
-  $('#addCands').onclick = () => {
-    const chosen = cands.filter(c => c.chosen);
-    if (!chosen.length) { toast('追加する目標をチェックしてください'); return; }
-    chosen.forEach(({ chosen: _c, ...g }) => state.goals.push(g));
-    cands = [];
-    save(); refreshStage(); renderBossTab(); toast('新しいボスがあらわれた!');
-  };
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    if (e.target.id === 'addTitle' && addingFor) addManualChild(addingFor);
+    else if (e.target.id === 'rootTitle') addRoot();
+    else if (e.target.id === 'obAddTitle') $('#obAddGo').click();
+  });
+
+  $('#addCands').onclick = addChosen;
+  $('#closeSplit').onclick = () => { splitFor = ''; cands = []; $('#splitWin').hidden = true; };
 
   $('#setName').onchange = e => { state.hero = e.target.value.trim() || '勇者'; save(); refreshHud(); };
-  $('#setJob').onchange = e => { state.job = e.target.value.trim(); save(); };
+  $('#setJob').onchange = e => {
+    state.job = e.target.value.trim();
+    const r = rootNode(); if (r && state.job) { r.title = state.job.slice(0, 60); refreshStage(); }
+    save();
+  };
   $('#setThr').onchange = e => { state.threshold = clampInt(e.target.value, 10, 100) || 80; e.target.value = state.threshold; save(); };
   $('#logout').onclick = () => logout();
 
@@ -619,8 +750,7 @@ function bind() {
 /* ================= 起動 ================= */
 async function start() {
   Stage.init($('#stage'), (boss, i, n) => {
-    $('#bossLabel').textContent = boss ? `${MONSTERS[tierOfXp(boss.xp)].name}「${boss.title}」 ${i + 1}/${n}` : 'ボスはまだいません';
-    $('#prevBoss').disabled = $('#nextBoss').disabled = n < 2;
+    $('#bossLabel').textContent = boss ? `${MONSTERS[boss.tier].name}「${boss.title}」` : 'ボスはまだいません';
   });
   bind();
   $('#authApi').value = lsGet(K_API) || (window.CONFIG && CONFIG.API_BASE) || '';

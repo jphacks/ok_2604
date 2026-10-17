@@ -191,7 +191,7 @@ const Stage = (() => {
   }
 
   function drawMonster(boss, x, y, flash, alpha) {
-    const tier = tierOfXp(boss.xp), m = MONSTERS[tier], s = MON_SCALE[tier];
+    const tier = boss.tier ?? tierOfXp(boss.xp), m = MONSTERS[tier], s = MON_SCALE[tier];
     const w = 16 * s, h = m.art.length * s;
     const ox = x ?? (W - 20 - w), oy = (y ?? 0) + GROUND - h;
     ctx.save(); ctx.globalAlpha = alpha ?? 1;
@@ -255,7 +255,7 @@ const Stage = (() => {
     }
 
     if (boss) {
-      const s = MON_SCALE[tierOfXp(boss.xp)];
+      const s = MON_SCALE[boss.tier ?? tierOfXp(boss.xp)];
       const e = Math.min(1, (now - spawnAt) / 500);
       drawMonster(boss, W - 20 - 16 * s + (1 - e) * 120 + knock, flash ? 0 : bob, flash, e);
     } else {
