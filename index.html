@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ライフRPG</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Noto+Sans+JP:wght@400;500;700&display=swap">
+  <link rel="stylesheet" href="style.css">
+  <!-- データファイル(jobs.js)を先に読み込む -->
+  <script src="jobs.js"></script>
+</head>
+<body>
+
+<div class="app">
+  <header class="win">
+    <div class="hdr">
+      <div class="title"><small>LIFE ROLE-PLAYING</small>ライフRPG</div>
+      <div class="hero"><b id="heroName">勇者</b> <span id="cls"></span><br><span id="lv">Lv.1</span></div>
+      <div class="gauge"><span>EXP</span><div class="track"><i id="lvbar"></i></div><span id="nextxp"></span></div>
+    </div>
+  </header>
+
+  <!-- ① 記録画面 -->
+  <section data-view="record">
+    <div class="win">
+      <h2>今日の冒険を記す</h2>
+      <p class="dim">良いことも悪いことも、そのまま書いてください。すべてが経験値になります。</p>
+      <textarea id="text" aria-label="今日の出来事" placeholder="例：上司に怒られた。でも最後まで資料を仕上げた。"></textarea>
+      <div class="seg" role="radiogroup" aria-label="今日の天気">
+        <label><input type="radio" name="mood" value="good">快晴</label>
+        <label><input type="radio" name="mood" value="flat" checked>くもり</label>
+        <label><input type="radio" name="mood" value="bad">嵐</label>
+      </div>
+      <div class="chips" id="examples" aria-label="入力例"></div>
+      <button class="btn primary" id="go">経験値に変える</button>
+    </div>
+  </section>
+
+  <!-- ② 判定リザルト画面 -->
+  <section data-view="judge" hidden>
+    <div class="win">
+      <h2>バトルリザルト</h2>
+      <div class="log" id="battle"></div>
+      <div id="gains" style="display:flex;flex-direction:column;gap:8px"></div>
+      <div class="levelup" id="levelup" hidden></div>
+      <p class="body" id="reframe"></p>
+      <p class="body dim" id="next"></p>
+      <div class="row"><button class="btn primary" id="toDiary">日誌を読む</button><button class="btn" id="again">もう1件記す</button></div>
+    </div>
+  </section>
+
+  <!-- ③ ステータス・適性分析・資格インベントリ画面 -->
+  <section data-view="status" hidden>
+    <!-- レーダーチャートと各種能力値 -->
+    <div class="win">
+      <h2>ステータス</h2>
+      <svg class="radar" id="radar" viewBox="0 0 360 330" role="img" aria-label="6つの能力のレーダーチャート"></svg>
+      <div class="stats" id="stats"></div>
+    </div>
+
+    <!-- 職業適合度・就職判定 -->
+    <div class="win">
+      <h2>将来像への適性分析</h2>
+      <p class="dim">目指す職業を選択すると、適合度と必要基準の到達度を計算します。</p>
+      <select id="jobSelect" class="select-box"></select>
+      <div id="jobAnalysisResult" class="body" style="margin-top:10px;"></div>
+    </div>
+
+    <!-- 資格インベントリ -->
+    <div class="win">
+      <h2>資格・スキルインベントリ</h2>
+      <p class="dim">取得した資格にチェックを入れると、ボーナス経験値を獲得できます。</p>
+      <div id="certList" style="display:flex; flex-direction:column; gap:12px; margin-top:8px;"></div>
+    </div>
+
+    <!-- 軍師の助言 -->
+    <div class="win">
+      <h2>軍師の助言</h2>
+      <div id="swot" class="body"></div>
+    </div>
+
+    <!-- 勇者の名前設定 -->
+    <div class="win">
+      <h2>勇者の名前</h2>
+      <input type="text" id="nameIn" maxlength="12" aria-label="勇者の名前" placeholder="勇者">
+      <p class="dim">日誌の主人公の名前になります。</p>
+    </div>
+  </section>
+
+  <!-- ④ 冒険日誌画面 -->
+  <section data-view="diary" hidden>
+    <div class="win">
+      <h2>冒険日誌</h2>
+      <p class="dim">日付が変わった日の冒険は、このページを開いたときに日誌として残ります。</p>
+    </div>
+    <div id="diary" style="display:flex;flex-direction:column;gap:18px"></div>
+  </section>
+
+  <!-- ⑤ 振り返り画面 -->
+  <section data-view="review" hidden>
+    <div class="win">
+      <h2>成長の記録</h2>
+      <div class="seg" role="radiogroup" aria-label="期間">
+        <label><input type="radio" name="period" value="7" checked>この1週間</label>
+        <label><input type="radio" name="period" value="30">この1か月</label>
+      </div>
+      <div id="sumline" class="body"></div>
+      <svg class="radar" id="radar2" viewBox="0 0 360 330" role="img" aria-label="期間内の獲得経験値のレーダーチャート"></svg>
+    </div>
+    <div class="win">
+      <h2>冒険の履歴</h2>
+      <div id="log"></div>
+      <button class="btn" id="clearSample" hidden>サンプルの記録を消す</button>
+    </div>
+  </section>
+</div>
+
+<!-- 下部ナビゲーションメニュー -->
+<nav class="menu" aria-label="コマンド">
+  <div>
+    <button data-tab="record" role="tab" aria-selected="true">ぼうけん</button>
+    <button data-tab="status" role="tab">ステータス</button>
+    <button data-tab="diary" role="tab">日誌</button>
+    <button data-tab="review" role="tab">ふりかえり</button>
+  </div>
+</nav>
+
+<script src="script.js"></script>
+</body>
+</html>
