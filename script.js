@@ -12,56 +12,6 @@ const NEG = ['怒られ', '叱られ', '失敗', '落ち込', '嫌', 'つらい'
 const FOES = ['モヤモヤ', '自己否定スライム', '不安ゴースト', '後悔ドラゴン', '先延ばしゴブリン'];
 const EXAMPLES = ['上司に怒られた。でも最後まで資料を直した', 'サークルの友達と話して気持ちが楽になった', '3kmランニングして、夜に英語を30分勉強した', '面接で緊張して失敗した', '初めて企画書を作って提出した'];
 
-/* --- 職業・資格マスターデータ --- */
-const JOBS = [
-  {
-    id: 'engineer',
-    name: 'Webエンジニア',
-    targetTotal: 500,
-    weights: { intel: 0.4, act: 0.3, create: 0.2, mental: 0.1, body: 0.0, social: 0.0 },
-    targets: { intel: 200, act: 150, create: 100, mental: 50, body: 0, social: 0 },
-    certifications: {
-      required: [
-        { name: '基本情報技術者試験 (FE)', stat: 'intel', exp: 100, desc: 'ITエンジニアの登竜門。基礎知識の証明に最適。' }
-      ],
-      recommended: [
-        { name: '応用情報技術者試験 (AP)', stat: 'intel', exp: 200, desc: 'ワンランク上のエンジニアを目指すための国家資格。' },
-        { name: 'AWS Certified Solutions Architect', stat: 'act', exp: 150, desc: 'クラウドインフラ構築の実務・スキル証明に強力。' }
-      ]
-    }
-  },
-  {
-    id: 'creator',
-    name: 'イラストレーター',
-    targetTotal: 450,
-    weights: { create: 0.5, mental: 0.2, act: 0.2, intel: 0.1, body: 0.0, social: 0.0 },
-    targets: { create: 225, mental: 90, act: 90, intel: 45, body: 0, social: 0 },
-    certifications: {
-      required: [],
-      recommended: [
-        { name: '色彩検定 (2級・1級)', stat: 'create', exp: 100, desc: '配色や色彩理論の体系的な理解を証明。' },
-        { name: 'Photoshop / Illustrator クリエイター能力認定', stat: 'create', exp: 80, desc: 'デザインツールの実務操作スキルの証明。' }
-      ]
-    }
-  },
-  {
-    id: 'manager',
-    name: 'プロジェクトマネージャー',
-    targetTotal: 600,
-    weights: { social: 0.3, mental: 0.3, act: 0.2, intel: 0.2, body: 0.0, create: 0.0 },
-    targets: { social: 180, mental: 180, act: 120, intel: 120, body: 0, social: 0 },
-    certifications: {
-      required: [
-        { name: '基本情報技術者試験 (FE)', stat: 'intel', exp: 100, desc: '前提となるIT基礎知識。' }
-      ],
-      recommended: [
-        { name: 'PMP (Project Management Professional)', stat: 'social', exp: 300, desc: '国際的に認知されているプロマネ最高峰資格。' },
-        { name: 'プロジェクトマネージャ試験 (PM)', stat: 'intel', exp: 250, desc: '高度IT人材としての国定高度資格。' }
-      ]
-    }
-  }
-];
-
 const KEY = 'liferpg.v2';
 const $ = s => document.querySelector(s);
 const abil = k => ABIL.find(a => a.k === k);
@@ -69,12 +19,26 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;'
 const isNeg = e => e.mood === 'bad' || NEG.some(w => e.text.includes(w));
 const foeOf = e => e.enemy || FOES[[...e.text].reduce((a, c) => a + c.charCodeAt(0), 0) % FOES.length];
 
+let JOBS = []; // jobs.json から動的に読み込む
 let state = load();
 state.obtainedCerts ??= [];
-state.selectedJobId ??= JOBS[0].id;
+state.selectedJobId ??= 'engineer';
+state.unlockedJobs ??= [];
+state.currentJob ??= '';
 state.diaries ??= {};
 
 let last = null;
+
+/* --- JSONデータの外部取得処理 --- */
+async function initJobData() {
+  try {
+    const res = await fetch('jobs.json');
+    JOBS = await res.json();
+  } catch (e) {
+    console.error('jobs.jsonの読み込みに失敗しました。フォールバックデータを使用します。', e);
+    JOBS = [{ id: 'engineer', name: 'Webエンジニア', reqLevel: 5, targetTotal: 500, weights: { intel: 0.4 }, targets: { intel: 200 }, certifications: { required: [], recommended: [] } }];
+  }
+}
 
 function load() {
   try {
@@ -104,7 +68,7 @@ function load() {
     sample: true
   }));
 
-  return { name: '', entries: sample, diaries: {}, obtainedCerts: [], selectedJobId: 'engineer' };
+  return { name: '', entries: sample, diaries: {}, obtainedCerts: [], selectedJobId: 'engineer', unlockedJobs: [], currentJob: '' };
 }
 
 function save() {
@@ -113,7 +77,6 @@ function save() {
 
 const hero = () => state.name || '勇者';
 
-/* --- 判定ロジック --- */
 function judge(text, mood) {
   const neg = isNeg({ text, mood }), g = {};
   ABIL.forEach(a => {
@@ -147,17 +110,17 @@ function dayKey(ts) {
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-/* --- 統計的適合度・到達予測計算エンジン --- */
 function calcJobStats(jobId) {
-  const job = JOBS.find(j => j.id === jobId) || JOBS[0];
+  const job = JOBS.find(j => j.id === jobId) || JOBS[0] || {};
   const currentTotal = total(state.entries);
   const userSum = Object.values(currentTotal).reduce((a, b) => a + b, 0);
+  const currentLv = lvInfo().lv;
 
   const matchDetails = {};
   let weightedProgressSum = 0;
 
   ABIL.forEach(a => {
-    const target = job.targets[a.k] || 0;
+    const target = (job.targets && job.targets[a.k]) || 0;
     const current = currentTotal[a.k] || 0;
     const ratio = target > 0 ? Math.min(1.0, current / target) : 1.0;
     matchDetails[a.k] = {
@@ -166,11 +129,12 @@ function calcJobStats(jobId) {
       pct: target > 0 ? Math.round((current / target) * 100) : 100
     };
     if (target > 0) {
-      weightedProgressSum += ratio * (job.weights[a.k] || 0);
+      weightedProgressSum += ratio * ((job.weights && job.weights[a.k]) || 0);
     }
   });
 
   const totalMatchPct = Math.round(weightedProgressSum * 100);
+  const canEmployed = currentLv >= (job.reqLevel || 1) && totalMatchPct >= 80;
 
   const twoWeeksAgo = Date.now() - 14 * 864e5;
   const recentEntries = state.entries.filter(e => e.t >= twoWeeksAgo);
@@ -178,19 +142,20 @@ function calcJobStats(jobId) {
   const recentGains = Object.values(total(recentEntries)).reduce((a, b) => a + b, 0);
   const dailyPace = recentGains / recentDays;
 
-  const remainingXP = Math.max(0, job.targetTotal - userSum);
+  const remainingXP = Math.max(0, (job.targetTotal || 500) - userSum);
   const estimatedDaysLeft = dailyPace > 0 ? Math.ceil(remainingXP / dailyPace) : Infinity;
 
   return {
     job,
     totalMatchPct,
     matchDetails,
+    canEmployed,
+    currentLv,
     dailyPace: dailyPace.toFixed(1),
     estimatedDaysLeft
   };
 }
 
-/* --- 描画系処理 --- */
 function radar(svg, t) {
   const cx = 180, cy = 165, R = 105, N = 6, max = Math.max(10, Math.ceil(Math.max(...Object.values(t)) / 5) * 5);
   const pt = (i, r) => {
@@ -228,7 +193,10 @@ function renderStatus() {
 
 function renderJobSelectOptions() {
   const select = $('#jobSelect');
-  select.innerHTML = JOBS.map(j => `<option value="${j.id}" ${j.id === state.selectedJobId ? 'selected' : ''}>${esc(j.name)}</option>`).join('');
+  select.innerHTML = JOBS.map(j => {
+    const isEmployed = state.currentJob === j.id;
+    return `<option value="${j.id}" ${j.id === state.selectedJobId ? 'selected' : ''}>${isEmployed ? '★ ' : ''}${esc(j.name)} (必要Lv.${j.reqLevel})</option>`;
+  }).join('');
   select.onchange = e => {
     state.selectedJobId = e.target.value;
     save();
@@ -239,12 +207,41 @@ function renderJobSelectOptions() {
 
 function renderJobAnalysis() {
   const res = calcJobStats(state.selectedJobId);
+  if (!res.job || !res.job.id) return;
+
+  const isCurrentEmployed = state.currentJob === res.job.id;
+
+  let unlockBanner = '';
+  if (isCurrentEmployed) {
+    unlockBanner = `
+      <div class="job-unlocked">
+        <h3>★ 現在の職業：${esc(res.job.name)}</h3>
+        <p class="dim">この職業として歩み始めています！</p>
+      </div>
+    `;
+  } else if (res.canEmployed) {
+    unlockBanner = `
+      <div class="job-unlocked">
+        <h3>🎉 就職条件クリア！</h3>
+        <p class="dim" style="margin-bottom:8px;">レベル条件(Lv.${res.job.reqLevel})と資質条件を達成しました！</p>
+        <button class="btn primary" onclick="employJob('${res.job.id}')">この職業に就く！</button>
+      </div>
+    `;
+  } else {
+    unlockBanner = `
+      <p class="dim" style="border:1px dashed var(--dim); padding:6px 8px; border-radius:4px; margin-bottom:8px;">
+        🔒 就職条件：<b>Lv.${res.job.reqLevel}</b> 以上 (現在: Lv.${res.currentLv}) ＆ 適合度 <b>80%</b> 以上
+      </p>
+    `;
+  }
+
   $('#jobAnalysisResult').innerHTML = `
+    ${unlockBanner}
     <p style="font-size:18px; color:var(--gold);">
       <b>職業適合度：${res.totalMatchPct}%</b>
     </p>
     <p class="dim">現在のペース：1日平均 <b>${res.dailyPace} XP</b></p>
-    <p class="dim">目標到達予測：${res.estimatedDaysLeft === Infinity ? '判定不能（冒険を記録してください）' : `あと約 <b>${res.estimatedDaysLeft} 日</b>`}</p>
+    <p class="dim">目標到達予測：${res.estimatedDaysLeft === Infinity ? '判定不能' : `あと約 <b>${res.estimatedDaysLeft} 日</b>`}</p>
     <hr style="border:0; border-top:1px dashed var(--dim); margin:10px 0;">
     <div style="display:grid; gap:4px;">
       ${ABIL.map(a => {
@@ -260,9 +257,30 @@ function renderJobAnalysis() {
   `;
 }
 
+window.employJob = function(jobId) {
+  const job = JOBS.find(j => j.id === jobId);
+  if (!job) return;
+
+  state.currentJob = jobId;
+  if (!state.unlockedJobs.includes(jobId)) {
+    state.unlockedJobs.push(jobId);
+  }
+
+  state.entries.push({
+    t: Date.now(),
+    text: `【祝】目標職業【${job.name}】に就職した！`,
+    mood: 'good',
+    gains: [{ k: 'mental', v: 3 }]
+  });
+
+  save();
+  renderStatus();
+  show('status');
+};
+
 function renderCertifications() {
-  const job = JOBS.find(j => j.id === state.selectedJobId) || JOBS[0];
-  const certs = job.certifications;
+  const job = JOBS.find(j => j.id === state.selectedJobId) || JOBS[0] || {};
+  const certs = job.certifications || {};
   let html = '';
 
   html += `<p style="color:var(--foe); font-size:14px; margin-bottom:4px;"><b>【必須・前提資格】</b></p>`;
@@ -357,8 +375,10 @@ function show(v) {
   document.querySelectorAll('[data-view]').forEach(s => s.hidden = s.dataset.view !== v);
   document.querySelectorAll('.menu button').forEach(b => b.setAttribute('aria-selected', String((v === 'judge' ? 'record' : v) === b.dataset.tab)));
   const li = lvInfo(), top = sorted(total(state.entries))[0];
+  const currentJobObj = JOBS.find(j => j.id === state.currentJob);
+
   $('#heroName').textContent = hero();
-  $('#cls').textContent = '〈' + top.cls + '〉';
+  $('#cls').textContent = currentJobObj ? `〈${currentJobObj.name}〉` : `〈${top.cls}〉`;
   $('#lv').textContent = 'Lv.' + li.lv;
   $('#lvbar').style.width = li.pct + '%';
   $('#nextxp').textContent = '次まで' + li.rest;
@@ -413,28 +433,34 @@ function submit() {
   show('judge');
 }
 
-/* --- イベントリスナー設定 --- */
-$('#examples').innerHTML = EXAMPLES.map(x => `<button type="button">${esc(x)}</button>`).join('');
-$('#examples').onclick = e => {
-  if (e.target.tagName === 'BUTTON') {
-    $('#text').value = e.target.textContent;
-    $('#text').focus();
-  }
-};
-$('#go').onclick = submit;
-$('#again').onclick = () => show('record');
-$('#toDiary').onclick = () => show('diary');
-document.querySelectorAll('.menu button').forEach(b => b.onclick = () => show(b.dataset.tab));
-document.querySelectorAll('[name=period]').forEach(r => r.onchange = renderReview);
-$('#nameIn').oninput = e => {
-  state.name = e.target.value.trim();
-  save();
-  $('#heroName').textContent = hero();
-};
-$('#clearSample').onclick = () => {
-  state.entries = state.entries.filter(e => !e.sample);
-  save();
-  show('review');
-};
+/* --- イベントリスナー＆初期化 --- */
+async function startApp() {
+  await initJobData(); // JSONデータを取得
 
-show('record');
+  $('#examples').innerHTML = EXAMPLES.map(x => `<button type="button">${esc(x)}</button>`).join('');
+  $('#examples').onclick = e => {
+    if (e.target.tagName === 'BUTTON') {
+      $('#text').value = e.target.textContent;
+      $('#text').focus();
+    }
+  };
+  $('#go').onclick = submit;
+  $('#again').onclick = () => show('record');
+  $('#toDiary').onclick = () => show('diary');
+  document.querySelectorAll('.menu button').forEach(b => b.onclick = () => show(b.dataset.tab));
+  document.querySelectorAll('[name=period]').forEach(r => r.onchange = renderReview);
+  $('#nameIn').oninput = e => {
+    state.name = e.target.value.trim();
+    save();
+    $('#heroName').textContent = hero();
+  };
+  $('#clearSample').onclick = () => {
+    state.entries = state.entries.filter(e => !e.sample);
+    save();
+    show('review');
+  };
+
+  show('record');
+}
+
+startApp();
