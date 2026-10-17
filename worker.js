@@ -212,7 +212,6 @@ async function plan(req, env, user, cors) {
   const job = str(body?.job, 60).trim();
   if (!job) return reply({ error: '職業を入力してください。' }, 400, cors);
   const status = str(body?.status, 400).trim();
-  const hours = clamp(body?.hours, 0, 100);
   const exclude = (Array.isArray(body?.exclude) ? body.exclude : []).slice(0, 30).map(s => str(s, 60));
   if (!await aiAllowed(env, user)) return reply({ error: 'AIの利用上限に達しました。しばらくお待ちください。' }, 429, cors);
 
@@ -227,7 +226,6 @@ async function plan(req, env, user, cors) {
     '- title は40文字以内。',
     `目指す職業: ${job}`,
     `現状: ${status || '未入力'}`,
-    `週に使える時間: ${hours ? hours + '時間' : '未入力'}`,
     exclude.length ? `すでにある目標(重複禁止): ${exclude.join(' / ')}` : ''
   ].filter(Boolean).join('\n');
 

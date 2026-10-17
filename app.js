@@ -340,8 +340,8 @@ function renderCandList(sel) {
   host.querySelectorAll('canvas').forEach(c => drawThumb(c, +c.dataset.xp));
 }
 
-async function fetchCands(job, status, hours, exclude) {
-  const r = await api('/plan', { method: 'POST', body: { job, status, hours, exclude } });
+async function fetchCands(job, status, exclude) {
+  const r = await api('/plan', { method: 'POST', body: { job, status, exclude } });
   return (r.goals || []).filter(g => g && g.title).map(g => ({ ...makeGoal(g), chosen: !!g.req }));
 }
 
@@ -498,7 +498,7 @@ async function planGoals() {
   state.job = job; state.status = $('#obStatus').value.trim();
   busy = true; $('#obPlan').disabled = true; $('#obPlan').textContent = '軍師が考え中…';
   try {
-    cands = await fetchCands(job, state.status, +$('#obHours').value || 0, []);
+    cands = await fetchCands(job, state.status, []);
     renderCandList('#candList');
     step(3);
   } catch (e) {
@@ -574,7 +574,7 @@ function bind() {
     if (!state.job) { err.textContent = '先に「せってい」で目指す職業を入力してください。'; err.hidden = false; return; }
     busy = true; $('#aiMore').disabled = true; $('#aiMore').textContent = '軍師が考え中…';
     try {
-      cands = await fetchCands(state.job, state.status, 0, state.goals.map(g => g.title));
+      cands = await fetchCands(state.job, state.status, state.goals.map(g => g.title));
       cands.forEach(c => c.chosen = false);
       renderBossTab();
     } catch (e) {
