@@ -1,11 +1,40 @@
-/* --- 基本マスターデータ --- */
+/* --- 重み付け(pts)対応アビリティマスター --- */
 const ABIL = [
-  { k: 'mental', n: '精神力', cls: '不屈の戦士', day: '不屈の日', kw: ['怒られ', '叱られ', '失敗', '落ち込', '嫌', 'つらい', '辛い', 'ミス', '断られ', '振られ', '我慢', '耐え', '不安', '緊張', 'それでも', '立ち直', '挑戦', '頑張'], tip: '嫌なことがあった日は、5分だけ散歩して気持ちを書き出しましょう。' },
-  { k: 'intel', n: '知力', cls: '見習い賢者', day: '修行の日', kw: ['勉強', '読書', '本', '授業', '講義', '試験', '資格', '学ん', '調べ', 'レポート', '課題', '論文', '研究', '復習', '英語', 'プログラ'], tip: '今日学んだことを1行でまとめると、知識が定着します。' },
-  { k: 'body', n: '体力', cls: '鍛錬の闘士', day: '鍛錬の日', kw: ['運動', '走', 'ランニング', '筋トレ', 'ジム', '散歩', '歩', 'ストレッチ', 'ヨガ', '早起き', '睡眠', '健康', '自炊', '水泳', '体操'], tip: '10分だけ歩く、ストレッチをする。小さな運動から始めましょう。' },
-  { k: 'act', n: '行動力', cls: '旅立ちの剣士', day: '旅立ちの日', kw: ['始め', '初めて', '申し込', '応募', '挑戦', '行った', '参加', '実行', 'やってみ', '提出', '決め', '片付', '掃除', '予約', '準備'], tip: '気になっていたことを、2分でできる最初の一歩に分けて動いてみましょう。' },
-  { k: 'social', n: '社交力', cls: '絆の吟遊詩人', day: '出会いの日', kw: ['友達', '友人', '話し', '会話', '相談', '飲み', 'サークル', 'チーム', 'バイト', '同僚', '先輩', '後輩', '家族', 'ありがとう', '感謝', '挨拶', '連絡', '上司', '会った'], tip: '誰か1人に「ありがとう」を伝えてみましょう。' },
-  { k: 'create', n: '創造力', cls: '創造の魔導士', day: '創造の日', kw: ['作っ', '描', '絵', 'デザイン', '書い', 'アイデア', '企画', '音楽', '演奏', '料理', '撮影', '動画', 'ブログ', '日記', '考え'], tip: 'うまくなくていいので、何か1つ作ってみましょう。' }
+  { k: 'mental', n: '精神力', cls: '不屈の戦士', day: '不屈の日', kw: [
+      { w: '怒られ', pts: 2 }, { w: '失敗', pts: 2 }, { w: 'ミス', pts: 2 },
+      { w: '乗り越え', pts: 3 }, { w: '耐えた', pts: 3 }, { w: '克服', pts: 4 }, { w: '面接', pts: 3 }
+    ], tip: '嫌なことがあった日は、5分だけ散歩して気持ちを書き出しましょう。' },
+  { k: 'intel', n: '知力', cls: '見習い賢者', day: '修行の日', kw: [
+      { w: '勉強', pts: 1 }, { w: '読書', pts: 1 }, { w: '復習', pts: 1 },
+      { w: 'プログラミング', pts: 2 }, { w: 'レポート', pts: 2 }, { w: '課題', pts: 2 },
+      { w: '資格', pts: 3 }, { w: '試験', pts: 3 }, { w: '論文', pts: 4 }, { w: '研究', pts: 4 }
+    ], tip: '今日学んだことを1行でまとめると、知識が定着します。' },
+  { k: 'body', n: '体力', cls: '鍛錬の闘士', day: '鍛錬の日', kw: [
+      { w: '散歩', pts: 1 }, { w: 'ストレッチ', pts: 1 },
+      { w: 'ランニング', pts: 2 }, { w: '筋トレ', pts: 2 }, { w: 'ジム', pts: 2 },
+      { w: 'マラソン', pts: 4 }, { w: '追い込んだ', pts: 3 }
+    ], tip: '10分だけ歩く、ストレッチをする。小さな運動から始めましょう。' },
+  { k: 'act', n: '行動力', cls: '旅立ちの剣士', day: '旅立ちの日', kw: [
+      { w: '調べた', pts: 1 }, { w: '片付け', pts: 1 },
+      { w: '申し込んだ', pts: 2 }, { w: '参加した', pts: 2 }, { w: '予約した', pts: 2 },
+      { w: '提出した', pts: 3 }, { w: '応募した', pts: 3 }, { w: '登壇した', pts: 4 }, { w: '発表した', pts: 4 }
+    ], tip: '気になっていたことを、2分でできる最初の一歩に分けて動いてみましょう。' },
+  { k: 'social', n: '社交力', cls: '絆の吟遊詩人', day: '出会いの日', kw: [
+      { w: '会話', pts: 1 }, { w: '挨拶', pts: 1 },
+      { w: '相談した', pts: 2 }, { w: 'お礼', pts: 2 }, { w: '連絡した', pts: 2 },
+      { w: '交渉した', pts: 3 }, { w: '謝罪した', pts: 3 }, { w: '幹事をやった', pts: 4 }
+    ], tip: '誰か1人に「ありがとう」を伝えてみましょう。' },
+  { k: 'create', n: '創造力', cls: '創造の魔導士', day: '創造の日', kw: [
+      { w: '考えた', pts: 1 }, { w: 'メモした', pts: 1 },
+      { w: '作った', pts: 2 }, { w: '描いた', pts: 2 }, { w: '書いた', pts: 2 },
+      { w: '企画した', pts: 3 }, { w: 'デザインした', pts: 3 }, { w: '完成させた', pts: 4 }, { w: 'リリースした', pts: 4 }
+    ], tip: 'うまくなくていいので、何か1つ作ってみましょう。' }
+];
+
+const ACTION_MODIFIERS = [
+  { kw: ['完成', '解決', '達成', '合格', '採用', '内定', 'リリース', '登壇'], mult: 2.0 },
+  { kw: ['提出', '公開', '応募', '仕上げた', 'やりきった', '乗り越えた'], mult: 1.5 },
+  { kw: ['始めた', '挑戦', '試した', '着手'], mult: 1.2 }
 ];
 
 const NEG = ['怒られ', '叱られ', '失敗', '落ち込', '嫌', 'つらい', '辛い', 'ミス', '断られ', '振られ', '疲', '最悪', '意味がな', '泣'];
@@ -19,7 +48,7 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;'
 const isNeg = e => e.mood === 'bad' || NEG.some(w => e.text.includes(w));
 const foeOf = e => e.enemy || FOES[[...e.text].reduce((a, c) => a + c.charCodeAt(0), 0) % FOES.length];
 
-let JOBS = []; // jobs.json から動的に読み込む
+let JOBS = [];
 let state = load();
 state.obtainedCerts ??= [];
 state.selectedJobId ??= 'engineer';
@@ -29,14 +58,52 @@ state.diaries ??= {};
 
 let last = null;
 
-/* --- JSONデータの外部取得処理 --- */
+/* ローカルダブルクリック(file://)対策のデータ読み込み処理 */
 async function initJobData() {
   try {
     const res = await fetch('jobs.json');
+    if (!res.ok) throw new Error('Network error');
     JOBS = await res.json();
   } catch (e) {
-    console.error('jobs.jsonの読み込みに失敗しました。フォールバックデータを使用します。', e);
-    JOBS = [{ id: 'engineer', name: 'Webエンジニア', reqLevel: 5, targetTotal: 500, weights: { intel: 0.4 }, targets: { intel: 200 }, certifications: { required: [], recommended: [] } }];
+    console.warn('jobs.jsonの読み込みに失敗したため、内蔵データを使用します。', e);
+    JOBS = [
+      {
+        id: 'engineer',
+        name: 'Webエンジニア',
+        reqLevel: 5,
+        targetTotal: 500,
+        weights: { intel: 0.4, act: 0.3, create: 0.2, mental: 0.1, body: 0.0, social: 0.0 },
+        targets: { intel: 200, act: 150, create: 100, mental: 50, body: 0, social: 0 },
+        certifications: {
+          required: [{ name: '基本情報技術者試験 (FE)', stat: 'intel', exp: 100, desc: 'ITエンジニアの登竜門。基礎知識の証明に最適。' }],
+          recommended: [{ name: '応用情報技術者試験 (AP)', stat: 'intel', exp: 200, desc: 'ワンランク上のエンジニアを目指すための国家資格。' }]
+        }
+      },
+      {
+        id: 'creator',
+        name: 'イラストレーター',
+        reqLevel: 4,
+        targetTotal: 450,
+        weights: { create: 0.5, mental: 0.2, act: 0.2, intel: 0.1, body: 0.0, social: 0.0 },
+        targets: { create: 225, mental: 90, act: 90, intel: 45, body: 0, social: 0 },
+        certifications: {
+          required: [],
+          recommended: [{ name: '色彩検定 (2級・1級)', stat: 'create', exp: 100, desc: '配色や色彩理論の体系的な理解を証明。' }]
+        }
+      },
+      {
+        id: 'manager',
+        name: 'プロジェクトマネージャー',
+        reqLevel: 8,
+        targetTotal: 600,
+        weights: { social: 0.3, mental: 0.3, act: 0.2, intel: 0.2, body: 0.0, create: 0.0 },
+        targets: { social: 180, mental: 180, act: 120, intel: 120, body: 0, social: 0 },
+        certifications: {
+          required: [{ name: '基本情報技術者試験 (FE)', stat: 'intel', exp: 100, desc: '前提となるIT基礎知識。' }],
+          recommended: [{ name: 'PMP', stat: 'social', exp: 300, desc: '国際的に認知されているプロマネ最高峰資格。' }]
+        }
+      }
+    ];
   }
 }
 
@@ -77,16 +144,48 @@ function save() {
 
 const hero = () => state.name || '勇者';
 
+/* 内容に応じた重み付け判定ロジック */
 function judge(text, mood) {
-  const neg = isNeg({ text, mood }), g = {};
+  const neg = isNeg({ text, mood });
+  const rawGains = {};
+
   ABIL.forEach(a => {
-    const h = a.kw.filter(w => text.includes(w)).length;
-    if (h && a.k !== 'mental') g[a.k] = Math.min(3, h + 1);
+    let score = 0;
+    a.kw.forEach(item => {
+      if (text.includes(item.w)) {
+        score += item.pts;
+      }
+    });
+    if (score > 0) rawGains[a.k] = score;
   });
-  if (neg) g.mental = 3;
-  else if (ABIL[0].kw.some(w => text.includes(w))) g.mental = 2;
-  if (!Object.keys(g).length) g.mental = 1;
-  return { neg, gains: Object.entries(g).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => ({ k, v })) };
+
+  let actionMultiplier = 1.0;
+  for (const mod of ACTION_MODIFIERS) {
+    if (mod.kw.some(w => text.includes(w))) {
+      actionMultiplier = Math.max(actionMultiplier, mod.mult);
+    }
+  }
+
+  if (neg) {
+    rawGains.mental = (rawGains.mental || 0) + 3;
+  }
+
+  if (Object.keys(rawGains).length === 0) {
+    rawGains[mood === 'bad' ? 'mental' : 'act'] = 1;
+  }
+
+  const finalGains = Object.entries(rawGains).map(([k, basePts]) => {
+    let calculated = Math.round(basePts * actionMultiplier);
+    return {
+      k,
+      v: Math.max(1, Math.min(15, calculated))
+    };
+  });
+
+  return {
+    neg,
+    gains: finalGains.sort((a, b) => b.v - a.v).slice(0, 3)
+  };
 }
 
 const total = es => {
@@ -193,10 +292,13 @@ function renderStatus() {
 
 function renderJobSelectOptions() {
   const select = $('#jobSelect');
+  if (!select) return;
+
   select.innerHTML = JOBS.map(j => {
     const isEmployed = state.currentJob === j.id;
     return `<option value="${j.id}" ${j.id === state.selectedJobId ? 'selected' : ''}>${isEmployed ? '★ ' : ''}${esc(j.name)} (必要Lv.${j.reqLevel})</option>`;
   }).join('');
+
   select.onchange = e => {
     state.selectedJobId = e.target.value;
     save();
@@ -433,9 +535,9 @@ function submit() {
   show('judge');
 }
 
-/* --- イベントリスナー＆初期化 --- */
+/* アプリ起動 */
 async function startApp() {
-  await initJobData(); // JSONデータを取得
+  await initJobData(); // JSON非同期読み込み（失敗時は自動フォールバック）
 
   $('#examples').innerHTML = EXAMPLES.map(x => `<button type="button">${esc(x)}</button>`).join('');
   $('#examples').onclick = e => {
