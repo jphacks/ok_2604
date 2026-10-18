@@ -76,6 +76,73 @@ const MONSTERS = [
 const MON_SCALE = [4, 4, 5, 5, 6];
 const tierOfXp = xp => xp < 30 ? 0 : xp < 60 ? 1 : xp < 100 ? 2 : xp < 160 ? 3 : 4;
 
+/* デイリーミッション用の小さな怪物(8種)。タスクを作ったときに1種が割り当てられる */
+const DAILY_MONSTERS = [
+  {
+    name: 'キノコ', pal: { k: '#2a1020', r: '#d9473a', w: '#ffffff', s: '#f2dcb0' },
+    art: [
+      '................', '.....kkkkkk.....', '...kkrrrrrrkk...', '..krrwwrrrrrrk..', '.krrwwrrrwwrrrk.',
+      '.krrrrrrrwwrrrk.', '.kkkkkkkkkkkkkk.', '....kssssssk....', '....kskssksk....', '....kssssssk....',
+      '....kssssssk....', '.....kkkkkk.....'
+    ]
+  },
+  {
+    name: 'コウモリ', pal: { k: '#1a1030', p: '#7a4ab0', e: '#ffd34d', w: '#ffffff' },
+    art: [
+      '................', '.kk..........kk.', '.kppk..kk..kppk.', 'kpppppkppkpppppk', 'kppkppppppppkppk',
+      '.kk.kpeppepk.kk.', '....kppppppk....', '.....kpwppwk....', '......kkkkkk....'
+    ]
+  },
+  {
+    name: 'おばけ', pal: { k: '#1c2a5a', w: '#e8f0ff', c: '#9ab0e0', r: '#ff7a7a' },
+    art: [
+      '................', '.....kkkkkk.....', '...kkwwwwwwkk...', '..kwwwwwwwwwwk..', '..kwkkwwwwkkwk..',
+      '..kwkkwwwwkkwk..', '..kwwwwkkwwwwk..', '..kwwwwkkwwwwk..', '..kwwwwwwwwwwk..', '..kwcwwcwwcwwk..',
+      '..kwkwkwwkwkwk..', '...k.kk.kk.kk...'
+    ]
+  },
+  {
+    name: 'ヘビ', pal: { k: '#10301c', g: '#5bd97a', y: '#f2e08a', r: '#ff5a5a', e: '#ffffff' },
+    art: [
+      '................', '......kkkk......', '.....kggggk.....', '....kgekgekk....', '....kggggggk....',
+      '....kgg.rr.k....', '.....kkgggk.....', '...kkkgggggkk...', '..kggggggggggk..', '..kgyyyyyyyygk..',
+      '..kkggggggggkk..', '...kkkkkkkkkk...'
+    ]
+  },
+  {
+    name: 'ガイコツ', pal: { k: '#1a1a24', w: '#f4f4ff', g: '#b8bcd0' },
+    art: [
+      '................', '....kkkkkkkk....', '...kwwwwwwwwk...', '..kwwwwwwwwwwk..', '..kwkkkwwkkkwk..',
+      '..kwkkkwwkkkwk..', '..kwwwwkkwwwwk..', '...kwwwwwwwwk...', '....kwkwkwkwk...', '....kgkgkgkgk...',
+      '.....kkkkkkk....'
+    ]
+  },
+  {
+    name: 'ハチ', pal: { k: '#2a1a08', w: '#cfe8ff', y: '#ffd34d', b: '#3a2a10', e: '#ffffff' },
+    art: [
+      '................', '..kkk......kkk..', '.kwwwk....kwwwk.', '.kwwwwkkkkwwwwk.', '..kkkkyyyykkkk..',
+      '.....kyeyyeyk...', '.....kyyyyyyk...', '.....kbbbbbbk...', '.....kyyyyyyk...', '.....kbbbbbbk...',
+      '......kyyyyk....', '.......kbbk.....', '........kk......'
+    ]
+  },
+  {
+    name: 'カニ', pal: { k: '#3a1010', r: '#e8603a', o: '#ffa05a', e: '#ffffff' },
+    art: [
+      '................', '..kk........kk..', '.krrk......krrk.', '.krrk.kkkk.krrk.', '..kkkkrrrrkkkk..',
+      '....krrrrrrk....', '...krekrrekrk...', '...krrrrrrrrk...', '....kkorrokk....', '...k.k.kk.k.k...'
+    ]
+  },
+  {
+    name: 'ネズミ', pal: { k: '#2a2430', g: '#a8a8b8', p: '#ff9ab0', e: '#ffffff', n: '#3a2a30' },
+    art: [
+      '................', '..kkk......kkk..', '.kppkk....kkppk.', '.kppgkkkkkkgppk.', '..kkggggggggkk..',
+      '...kgekggekgk...', '...kggggggggk.k.', '...kgggnnggkkk..', '....kggggggk....', '....kk.kk.kk....'
+    ]
+  }
+];
+const DAILY_MON_SCALE = 4;
+const monScaleOf = boss => typeof boss.mon === 'number' ? DAILY_MON_SCALE : MON_SCALE[boss.tier ?? tierOfXp(boss.xp)];
+
 function drawGrid(ctx, rows, pal, ox, oy, s, flash) {
   for (let y = 0; y < rows.length; y++) {
     const row = rows[y];
@@ -191,7 +258,7 @@ const Stage = (() => {
   }
 
   function drawMonster(boss, x, y, flash, alpha) {
-    const tier = boss.tier ?? tierOfXp(boss.xp), m = MONSTERS[tier], s = MON_SCALE[tier];
+    const m = typeof boss.mon === 'number' ? DAILY_MONSTERS[boss.mon] : MONSTERS[boss.tier ?? tierOfXp(boss.xp)], s = monScaleOf(boss);
     const w = 16 * s, h = m.art.length * s;
     const ox = x ?? (W - 20 - w), oy = (y ?? 0) + GROUND - h;
     ctx.save(); ctx.globalAlpha = alpha ?? 1;
@@ -288,7 +355,7 @@ const Stage = (() => {
     }
 
     if (boss) {
-      const s = MON_SCALE[boss.tier ?? tierOfXp(boss.xp)];
+      const s = monScaleOf(boss);
       const e = Math.min(1, (now - spawnAt) / 500);
       drawMonster(boss, W - 20 - 16 * s + (1 - e) * 120 + knock, flash ? 0 : bob, flash, e);
     } else {

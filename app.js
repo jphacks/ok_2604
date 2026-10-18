@@ -55,7 +55,7 @@ const K_SESSION = 'liferpg.v3.session';
 const K_API = 'liferpg.v3.api';
 const saveKey = () => 'liferpg.v3.save.' + (session && !session.guest ? session.user.toLowerCase() : '_guest');
 
-const newState = () => ({ v: 3, hero: '', job: '', status: '', onboarded: false, goals: [], focus: '', entries: [], studies: [], study: null, daily: { missions: [], days: {} } });
+const newState = () => ({ v: 3, hero: '', job: '', status: '', onboarded: false, goals: [], focus: '', entries: [], studies: [], study: null, daily: { missions: [], days: {}, active: null } });
 
 let session = null;
 let state = newState();
@@ -82,17 +82,28 @@ function normalizeGoals(list, job) {
 }
 
 function normalizeDaily(d) {
+  const monOf = id => [...String(id)].reduce((a, c) => a + c.charCodeAt(0), 0) % 8;
   const missions = (d && Array.isArray(d.missions) ? d.missions : []).filter(m => m && m.title).slice(0, 20)
-    .map(m => ({ id: String(m.id || uid()), title: String(m.title).slice(0, 40) }));
+    .map(m => {
+      const id = String(m.id || uid());
+      return {
+        id, title: String(m.title).slice(0, 40), minutes: clampInt(m.minutes, 0, 600),
+        mon: Number.isInteger(m.mon) && m.mon >= 0 && m.mon < 8 ? m.mon : monOf(id)
+      };
+    });
   const days = {};
   Object.keys((d && d.days) || {}).filter(k => /^\d{4}-\d{2}-\d{2}$/.test(k)).sort().slice(-400).forEach(k => {
-    const r = d.days[k] || {};
+    const r = d.days[k] || {}, spent = {};
+    Object.keys(r.spent || {}).slice(0, 20).forEach(id => { spent[String(id)] = clampInt(r.spent[id], 0, 86400); });
     days[k] = {
       done: (Array.isArray(r.done) ? r.done : []).map(String).slice(0, 20),
-      total: clampInt(r.total, 0, 20), exp: clampInt(r.exp, 0, 500)
+      total: clampInt(r.total, 0, 20), exp: clampInt(r.exp, 0, 500), spent
     };
   });
-  return { missions, days };
+  const act = d && d.active;
+  const active = act && missions.some(m => m.id === act.id) && Number(act.startedAt) > 0
+    ? { id: String(act.id), startedAt: Number(act.startedAt) } : null;
+  return { missions, days, active };
 }
 
 function normalize(s) {
@@ -328,6 +339,8 @@ function focusNode() {
 
 function refreshStage() {
   Stage.setGear(gearTiers());
+  const am = activeMission();
+  if (am) { Stage.setBosses([dailyBoss(am)]); return; }   // デイリーミッション中は、そのタスクの怪物を映す
   const f = focusNode();
   Stage.setBosses(f ? [stageBoss(f)] : []);
 }
@@ -783,14 +796,38 @@ let dailyKeyShown = '';
 
 const dayKeyOf = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const todayKey = () => dayKeyOf(new Date());
+const missionById = id => state.daily.missions.find(m => m.id === id);
+const activeMission = () => (state.daily.active ? missionById(state.daily.active.id) || null : null);
+const dailyBoss = m => ({ id: 'daily:' + m.id, title: m.title, tier: 0, mon: m.mon });
+
+function dayRecord(key) {
+  return state.daily.days[key] || (state.daily.days[key] = { done: [], total: 0, exp: 0, spent: {} });
+}
 
 /* その日の記録を、いまのミッション一覧に合わせて数え直す(今日の分だけ。過去の日は動かさない) */
 function recalcDay(key) {
-  const r = state.daily.days[key] || (state.daily.days[key] = { done: [], total: 0, exp: 0 });
+  const r = dayRecord(key);
   r.done = r.done.filter(id => state.daily.missions.some(m => m.id === id));
   r.total = state.daily.missions.length;
   r.exp = r.done.length * DAILY_EXP + (r.total > 0 && r.done.length === r.total ? DAILY_BONUS : 0);
   return r;
+}
+
+/* 今日そのタスクに使った秒数(進行中なら、いまの分も足す) */
+function spentSeconds(id) {
+  const r = state.daily.days[todayKey()], base = r && r.spent ? (r.spent[id] || 0) : 0;
+  const act = state.daily.active;
+  return base + (act && act.id === id ? Math.max(0, Math.floor((Date.now() - act.startedAt) / 1000)) : 0);
+}
+
+/* 進行中の分を今日の記録に足して、進行を止める */
+function stopActive() {
+  const act = state.daily.active;
+  if (!act) return;
+  const r = dayRecord(todayKey());
+  r.spent = r.spent || {};
+  r.spent[act.id] = Math.min(86400, (r.spent[act.id] || 0) + Math.max(0, Math.floor((Date.now() - act.startedAt) / 1000)));
+  state.daily.active = null;
 }
 
 /* 連続日数:すべてのミッションを完了した日が続いている数。今日がまだなら、昨日までを数える */
@@ -803,52 +840,106 @@ function dailyStreak() {
   return n;
 }
 
+const fmtMin = sec => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+
 function renderDaily() {
   const key = todayKey(); dailyKeyShown = key;
   const rec = state.daily.days[key] || { done: [] };
   const ms = state.daily.missions, doneN = ms.filter(m => rec.done.includes(m.id)).length;
   const st = dailyStreak();
   $('#dailyStreak').innerHTML = ms.length
-    ? `<p>今日 <b style="color:var(--gold)">${doneN}/${ms.length}</b> 完了 ・ <b style="color:var(--gold)">${st}日連続</b></p>`
+    ? `<p>今日 <b style="color:var(--gold)">${doneN}/${ms.length}</b> 撃破 ・ <b style="color:var(--gold)">${st}日連続</b></p>`
     : '<p class="dim">ミッションがまだありません。下の欄から、毎日やることを登録しましょう。</p>';
+  const act = state.daily.active;
   $('#dailyList').innerHTML = ms.map(m => {
-    const on = rec.done.includes(m.id);
-    return `<div class="mission ${on ? 'done' : ''}">
-      <button class="chkbtn" data-act="dailyTick" data-id="${m.id}" aria-pressed="${on}" aria-label="${esc(m.title)}を${on ? '未完了に戻す' : '完了にする'}">${on ? '☑' : '☐'}</button>
-      <span class="body">${esc(m.title)}</span>
-      <button class="btn small" data-act="dailyDel" data-id="${m.id}">削除</button>
+    const done = rec.done.includes(m.id), running = !!act && act.id === m.id;
+    const sec = spentSeconds(m.id), goal = m.minutes * 60, reached = m.minutes === 0 || sec >= goal;
+    let btns = '';
+    if (done) btns = '';
+    else if (running) btns = `<button class="btn small" data-act="dailyPause" data-id="${m.id}">中断</button>` +
+      (reached ? `<button class="btn small primary" data-act="dailyFinish" data-id="${m.id}">${m.minutes ? '撃破' : '結束'}</button>` : '');
+    else btns = `<button class="btn small primary" data-act="dailyStart" data-id="${m.id}">${sec > 0 ? '再開' : '開始'}</button>` +
+      (m.minutes && reached ? `<button class="btn small" data-act="dailyFinish" data-id="${m.id}">撃破</button>` : '');
+    const meta = `${DAILY_MONSTERS[m.mon].name} ・ ` + (m.minutes
+      ? `<span data-prog="${m.id}">${fmtMin(Math.min(sec, 99 * 3600))}</span> / ${m.minutes}分`
+      : '時間なし') + (done ? ' ・ 撃破!' : running ? ' ・ 戦闘中' : '');
+    const bar = m.minutes && !done ? `<div class="prog hp"><i data-bar="${m.id}" style="width:${Math.min(100, Math.round(sec / goal * 100))}%"></i></div>` : '';
+    return `<div class="mission ${done ? 'done' : ''} ${running ? 'running' : ''}">
+      <canvas class="ico" width="48" height="48" data-mon="${m.mon}"></canvas>
+      <div class="mtxt"><div class="btitle">${esc(m.title)}</div><div class="bmeta">${meta}</div>${bar}</div>
+      <div class="bact">${btns}<button class="btn small" data-act="dailyDel" data-id="${m.id}">削除</button></div>
     </div>`;
   }).join('');
+  $$('#dailyList canvas[data-mon]').forEach(c => {
+    const m = DAILY_MONSTERS[+c.dataset.mon], ctx = c.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    drawGrid(ctx, m.art, m.pal, 0, Math.max(0, c.height - m.art.length * 3), 3);
+  });
 }
 
-function toggleMission(id) {
-  if (!state.daily.missions.some(m => m.id === id)) return;
-  const before = snapshot(), key = todayKey();
-  const r = state.daily.days[key] || (state.daily.days[key] = { done: [], total: 0, exp: 0 });
-  r.done = r.done.includes(id) ? r.done.filter(x => x !== id) : [...r.done, id];
-  const was = r.exp, now = recalcDay(key);
-  save(); refreshHud(); announce(before); renderDaily();
-  if (now.exp > was) toast(`ミッション達成! +${now.exp - was} EXP`);
+/* 1秒ごとに、進行中タスクの経過表示を更新。目標時間に届いた瞬間だけ画面を作り直して「撃破」ボタンを出す */
+function tickDaily() {
+  const act = state.daily.active, m = activeMission();
+  if (!act || !m) return;
+  const sec = spentSeconds(m.id);
+  const lbl = document.querySelector(`[data-prog="${m.id}"]`), bar = document.querySelector(`[data-bar="${m.id}"]`);
+  if (lbl) lbl.textContent = fmtMin(Math.min(sec, 99 * 3600));
+  if (bar && m.minutes) bar.style.width = Math.min(100, Math.round(sec / (m.minutes * 60) * 100)) + '%';
+  if (m.minutes && sec >= m.minutes * 60 && !document.querySelector(`[data-act=dailyFinish][data-id="${m.id}"]`)) {
+    renderDaily();
+    toast(`「${m.title}」の時間になりました!「撃破」で怪物を倒そう`);
+  }
+}
+
+function startMission(id) {
+  const m = missionById(id), rec = dayRecord(todayKey());
+  if (!m || rec.done.includes(id)) return;
+  if (state.daily.active && state.daily.active.id !== id) stopActive();   // ほかのタスクは自動で中断
+  if (!state.daily.active) state.daily.active = { id, startedAt: Date.now() };
+  save(); refreshStage(); renderDaily();
+}
+
+function pauseMission() {
+  stopActive();
+  save(); refreshStage(); renderDaily();
+}
+
+function finishMission(id) {
+  const m = missionById(id);
+  if (!m) return;
+  const rec = dayRecord(todayKey());
+  if (rec.done.includes(id)) return;
+  if (state.daily.active && state.daily.active.id === id) stopActive();
+  if (m.minutes && (rec.spent[id] || 0) < m.minutes * 60) { save(); renderDaily(); return; }   // 時間が足りないときは倒せない
+  const before = snapshot(), was = rec.exp;
+  rec.done = [...rec.done, id];
+  const now = recalcDay(todayKey());
+  save(); refreshHud(); renderDaily();
+  Stage.playDefeat(dailyBoss(m), refreshStage);
+  toast(`${m.title} を撃破! +${now.exp - was} EXP`);
+  announce(before);
 }
 
 function addMission() {
   const input = $('#dailyTitle'), title = input.value.trim().slice(0, 40);
   if (!title) { input.focus(); return; }
   if (state.daily.missions.length >= 20) { toast('ミッションは20個までです'); return; }
+  const minutes = clampInt($('#dailyMin').value, 0, 600);
   const before = snapshot();
-  state.daily.missions.push({ id: uid(), title });
-  input.value = '';
-  recalcDay(todayKey());             // 全完了のボーナス判定を、増えた数に合わせる
+  state.daily.missions.push({ id: uid(), title, minutes, mon: Math.floor(Math.random() * DAILY_MONSTERS.length) });
+  input.value = ''; $('#dailyMin').value = '';
+  recalcDay(todayKey());             // 全撃破のボーナス判定を、増えた数に合わせる
   save(); refreshHud(); announce(before); renderDaily();
 }
 
 function deleteMission(id) {
-  const m = state.daily.missions.find(x => x.id === id);
+  const m = missionById(id);
   if (!m || !confirm(`「${m.title}」を削除しますか?`)) return;
   const before = snapshot();
+  if (state.daily.active && state.daily.active.id === id) state.daily.active = null;
   state.daily.missions = state.daily.missions.filter(x => x.id !== id);
   recalcDay(todayKey());
-  save(); refreshHud(); announce(before); renderDaily();
+  save(); refreshHud(); refreshStage(); announce(before); renderDaily();
 }
 
 /* ================= ステータス(EXPとレベル・装備のみ) ================= */
@@ -1047,6 +1138,7 @@ function bind() {
   $('#frRefresh').onclick = loadFriends;
   $('#frBack').onclick = () => show('friends');
   $('#dailyAdd').onclick = addMission;
+  setInterval(tickDaily, 1000);
   $('#ngOk').onclick = () => addRoot(true);
   $('#ngLater').onclick = () => { $('#newGoalWin').hidden = true; };
   setInterval(() => {
@@ -1075,7 +1167,9 @@ function bind() {
     if (act === 'tick') tickLeaf(id);
     else if (act === 'defeat') defeatNode(id);
     else if (act === 'undoDefeat') undoDefeat(id);
-    else if (act === 'dailyTick') toggleMission(id);
+    else if (act === 'dailyStart') startMission(id);
+    else if (act === 'dailyPause') pauseMission();
+    else if (act === 'dailyFinish') finishMission(id);
     else if (act === 'dailyDel') deleteMission(id);
     else if (act === 'remove') removeNode(id);
     else if (act === 'fold') { const g = byId(id); if (g) { g.collapsed = !g.collapsed; save(); renderTree(); } }
@@ -1096,7 +1190,7 @@ function bind() {
     if (e.target.id === 'addTitle' && addingFor) addManualChild(addingFor);
     else if (e.target.id === 'rootTitle') addRoot(false);
     else if (e.target.id === 'ngTitle') addRoot(true);
-    else if (e.target.id === 'dailyTitle') addMission();
+    else if (e.target.id === 'dailyTitle' || e.target.id === 'dailyMin') addMission();
     else if (e.target.id === 'studySubject') startStudy();
     else if (e.target.id === 'frName') sendFriendRequest();
     else if (e.target.id === 'obAddTitle') $('#obAddGo').click();
@@ -1134,7 +1228,7 @@ function bind() {
 /* ================= 起動 ================= */
 async function start() {
   Stage.init($('#stage'), (boss, i, n) => {
-    $('#bossLabel').textContent = boss ? `${MONSTERS[boss.tier].name}「${boss.title}」` : 'ボスはまだいません';
+    $('#bossLabel').textContent = boss ? (typeof boss.mon === 'number' ? `${DAILY_MONSTERS[boss.mon].name}「${boss.title}」(デイリー)` : `${MONSTERS[boss.tier].name}「${boss.title}」`) : 'ボスはまだいません';
   });
   bind();
   $('#authApi').value = lsGet(K_API) || (window.CONFIG && CONFIG.API_BASE) || '';

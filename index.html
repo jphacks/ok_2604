@@ -113,10 +113,10 @@
   <section data-view="daily" hidden>
     <div class="win">
       <h2>デイリーミッション</h2>
-      <p class="dim">毎日やると決めたことを登録して、できたらチェックします。毎日0時にリセットされます。1つ完了するごとに +10 EXP、その日のミッションをすべて完了すると、さらに +10 EXP のボーナスがもらえます。</p>
+      <p class="dim">毎日やると決めたことを登録します(時間は入れても入れなくてもOK)。「開始」を押すとそのタスクの怪物があらわれ、時間のあるタスクは目標の時間に届いたら「撃破」、時間のないタスクは「結束」で怪物を倒せます。途中で「中断」すると、それまでの時間は記録されて、次の「再開」で続きから数えます。1体倒すごとに +10 EXP、その日のミッションをすべて倒すと、さらに +10 EXP。毎日0時にリセットされます。</p>
       <div id="dailyStreak" class="body"></div>
       <div id="dailyList" class="dailylist"></div>
-      <div class="addrow"><input type="text" id="dailyTitle" maxlength="40" placeholder="例: 英単語を30分" aria-label="新しいミッション"><button type="button" class="btn small primary" id="dailyAdd">追加</button></div>
+      <div class="addrow dailyadd"><input type="text" id="dailyTitle" maxlength="40" placeholder="例: 英単語" aria-label="新しいミッション"><input type="number" id="dailyMin" min="1" max="600" placeholder="分(任意)" aria-label="時間(分・任意)"><button type="button" class="btn small primary" id="dailyAdd">追加</button></div>
     </div>
   </section>
 
