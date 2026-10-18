@@ -236,7 +236,7 @@ async function submit() {
   if (busy) return;
   const text = $('#text').value.trim();
   if (!text) { $('#text').focus(); return; }
-  const mood = document.querySelector('[name=mood]:checked').value;
+  const mood = document.querySelector('[name=mood]:checked')?.value || 'flat';
   busy = true; $('#go').disabled = true; $('#go').textContent = '分析中…';
   try {
     const before = snapshot();
