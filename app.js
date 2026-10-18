@@ -559,13 +559,13 @@ const fmtClock = ms => {
 function renderStudy() {
   const box = $('#studyBox');
   if (state.study) {
-    box.innerHTML = `<p class="body">勉強中:<b style="color:var(--gold)">${esc(state.study.subject)}</b></p>
+    box.innerHTML = `<p class="body">鍛錬中:<b style="color:var(--gold)">${esc(state.study.subject)}</b></p>
       <div class="bignum" id="studyClock">${fmtClock(Date.now() - state.study.startedAt)}</div>
       <button class="btn primary" id="studyStop">終了して経験値にする</button>`;
     $('#studyStop').onclick = stopStudy;
   } else {
     box.innerHTML = `<input type="text" id="studySubject" maxlength="40" placeholder="例: TOEICの単語 / Pythonの教科書 第3章" aria-label="勉強する内容">
-      <button class="btn primary" id="studyStart">勉強をはじめる</button>`;
+      <button class="btn primary" id="studyStart">鍛錬をはじめる</button>`;
     $('#studyStart').onclick = startStudy;
   }
 }
