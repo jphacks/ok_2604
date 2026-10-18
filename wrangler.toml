@@ -1,0 +1,13 @@
+name = "liferpg-api"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# npx wrangler kv namespace create DB で得た id を貼る
+[[kv_namespaces]]
+binding = "DB"
+id = "a1d1fa1808c049d28d7dae51af9322fd"
+
+[vars]
+# 公開するサイトのオリジンに限定してください(例: "https://example.github.io")。カンマ区切りで複数可。
+ALLOWED_ORIGIN = "*"
+GEMINI_MODEL = "gemini-3.5-flash-lite"

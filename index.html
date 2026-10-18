@@ -2,129 +2,248 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
   <title>ライフRPG</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Noto+Sans+JP:wght@400;500;700&display=swap">
   <link rel="stylesheet" href="style.css">
-  <!-- データファイル(jobs.js)を先に読み込む -->
-  <script src="jobs.js"></script>
+  <script src="config.js"></script>
+  <script src="sprites.js"></script>
 </head>
 <body>
 
 <div class="app">
-  <header class="win">
-    <div class="hdr">
-      <div class="title"><small>LIFE ROLE-PLAYING</small>ライフRPG</div>
-      <div class="hero"><b id="heroName">勇者</b> <span id="cls"></span><br><span id="lv">Lv.1</span></div>
-      <div class="gauge"><span>EXP</span><div class="track"><i id="lvbar"></i></div><span id="nextxp"></span></div>
-    </div>
-  </header>
 
-  <!-- ① 記録画面 -->
-  <section data-view="record">
+  <!-- 最上部:勇者と怪物の戦闘ステージ(ログイン後は常に表示) -->
+  <div class="top" id="top" hidden>
+    <div class="win stagewin">
+      <div class="hdr">
+        <div class="hero"><b id="heroName">勇者</b> <span id="cls"></span></div>
+        <div class="lvl"><span id="lv">Lv.1</span> <span class="sync" id="sync"></span></div>
+        <div class="gauge"><span>EXP</span><div class="track"><i id="lvbar"></i></div><span id="nextxp"></span></div>
+      </div>
+      <canvas id="stage" width="320" height="140" aria-label="勇者と怪物の戦闘アニメーション"></canvas>
+      <div class="stagebar"><span id="bossLabel" class="dim"></span></div>
+    </div>
+  </div>
+
+  <!-- ① 登録・ログイン -->
+  <section data-screen="auth">
+    <div class="win title-win">
+      <div class="title"><small>LIFE ROLE-PLAYING</small>ライフRPG</div>
+      <p class="dim">目標をボスに変えて、毎日の積み重ねで倒していく冒険の記録帳です。</p>
+    </div>
+    <div class="win">
+      <h2>冒険の書</h2>
+      <div class="seg" role="radiogroup" aria-label="モード">
+        <label><input type="radio" name="authMode" value="register" checked>あたらしく登録</label>
+        <label><input type="radio" name="authMode" value="login">ログイン</label>
+      </div>
+      <label class="fld">ユーザー名<input type="text" id="authUser" autocomplete="username" maxlength="20" placeholder="3〜20文字"></label>
+      <label class="fld">パスワード<input type="password" id="authPass" autocomplete="current-password" maxlength="128" placeholder="8文字以上"></label>
+      <details>
+        <summary class="dim">サーバー設定</summary>
+        <label class="fld">Worker の URL<input type="text" id="authApi" placeholder="https://xxxx.workers.dev" autocapitalize="off" spellcheck="false"></label>
+      </details>
+      <p class="foe" id="authErr" role="alert" hidden></p>
+      <button class="btn primary" id="authGo">登録してはじめる</button>
+      <button class="btn" id="guestGo">ゲストで試す(この端末だけに保存)</button>
+    </div>
+  </section>
+
+  <!-- ② はじめの準備:名前 → 職業 → 目標の選択 -->
+  <section data-screen="onboard" hidden>
+    <div class="win" data-step="1">
+      <h2>勇者の名前</h2>
+      <p class="dim">冒険の主人公の名前を決めましょう。</p>
+      <input type="text" id="obName" maxlength="12" placeholder="勇者" aria-label="勇者の名前">
+      <button class="btn primary" id="obNext1">次へ</button>
+    </div>
+
+    <div class="win" data-step="2" hidden>
+      <h2>最終目標</h2>
+      <p class="dim">いちばん大きな目標(なりたい職業・達成したいこと)を教えてください。これが最大のボス(魔王)になります。軍師(AI)が、そこへ近づくための小さな目標に分けます。</p>
+      <label class="fld">最終目標<input type="text" id="obJob" maxlength="60" placeholder="例: Webエンジニア / 看護師 / 簿記の仕事"></label>
+      <label class="fld">いまの状況(任意)<textarea id="obStatus" maxlength="400" placeholder="例: 大学2年。プログラミングは未経験。"></textarea></label>
+      <div class="row">
+        <button class="btn" id="obBack2">戻る</button>
+        <button class="btn primary" id="obPlan">軍師に相談する</button>
+      </div>
+    </div>
+
+    <div class="win" data-step="3" hidden>
+      <h2>最初の小目標を選ぶ</h2>
+      <p class="dim">チェックした目標が、魔王の下の中ボスになります。あとから、どの目標もさらに細かく分けられます。</p>
+      <p class="foe" id="obErr3" role="alert" hidden></p>
+      <div id="candList" class="cands"></div>
+      <details>
+        <summary class="dim">自分で目標を追加する</summary>
+        <div class="addrow"><input type="text" id="obAddTitle" maxlength="60" placeholder="例: プログラミングを学ぶ" aria-label="小目標の名前"><button type="button" class="btn small primary" id="obAddGo">追加</button></div>
+      </details>
+      <div class="row">
+        <button class="btn" id="obBack3">戻る</button>
+        <button class="btn primary" id="obStart">冒険に出る</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ③ メイン -->
+  <section data-view="record" hidden>
     <div class="win">
       <h2>今日の冒険を記す</h2>
       <p class="dim">良いことも悪いことも、そのまま書いてください。すべてが経験値になります。</p>
-      <textarea id="text" aria-label="今日の出来事" placeholder="例：上司に怒られた。でも最後まで資料を仕上げた。"></textarea>
-      <div class="seg" role="radiogroup" aria-label="今日の天気">
-        <label><input type="radio" name="mood" value="good">快晴</label>
-        <label><input type="radio" name="mood" value="flat" checked>くもり</label>
-        <label><input type="radio" name="mood" value="bad">嵐</label>
-      </div>
-      <div class="chips" id="examples" aria-label="入力例"></div>
+      <textarea id="text" maxlength="500" aria-label="今日の出来事" placeholder="例:上司に怒られた。でも最後まで資料を仕上げた。"></textarea>
       <button class="btn primary" id="go">経験値に変える</button>
     </div>
-  </section>
-
-  <!-- ② 判定リザルト画面 -->
-  <section data-view="judge" hidden>
-    <div class="win">
-      <h2>バトルリザルト</h2>
+    <div class="win" id="result" hidden>
+      <h2>今日の成長</h2>
       <div class="log" id="battle"></div>
-      <div id="gains" style="display:flex;flex-direction:column;gap:8px"></div>
-      <div class="levelup" id="levelup" hidden></div>
-      <p class="body" id="reframe"></p>
-      <p class="body dim" id="next"></p>
-      <div class="row"><button class="btn primary" id="toDiary">日誌を読む</button><button class="btn" id="again">もう1件記す</button></div>
+      <p class="body" id="harvest"></p>
+      <p class="body" id="future"></p>
+      <div class="gain"><b>獲得EXP</b><span class="pt" id="expPt"></span></div>
+      <p class="dim pre" id="dmg"></p>
+    </div>
+    <div class="win" id="studyWin">
+      <h2>鍛錬記録</h2>
+      <p class="dim">何を勉強するか入力して「はじめる」。終わったら「終了」を押すと、勉強した内容と時間から経験値が入ります。</p>
+      <div id="studyBox" class="studybox"></div>
+      <p class="body" id="studyResult" hidden></p>
     </div>
   </section>
 
-  <!-- ③ ステータス・適性分析・資格インベントリ画面 -->
+  <section data-view="daily" hidden>
+    <div class="win">
+      <h2>デイリーミッション</h2>
+      <div id="dailyStreak" class="body"></div>
+      <div id="dailyList" class="dailylist"></div>
+      <div class="addrow dailyadd"><input type="text" id="dailyTitle" maxlength="40" placeholder="例: 英単語" aria-label="新しいミッション"><input type="number" id="dailyMin" min="1" max="600" placeholder="分(任意)" aria-label="時間(分・任意)"><button type="button" class="btn small primary" id="dailyAdd">追加</button></div>
+    </div>
+  </section>
+
+  <section data-view="friends" hidden>
+    <div class="win">
+      <h2>ともだちを追加</h2>
+      <div class="addrow"><input type="text" id="frName" maxlength="20" placeholder="ユーザー名" autocapitalize="off" aria-label="ともだちのユーザー名"><button class="btn small primary" id="frSend">申請</button></div>
+      <p class="dim" id="frMsg" role="status" hidden></p>
+    </div>
+    <div class="win" id="frGuest" hidden>
+      <h2>ともだち</h2>
+      <p class="dim">ゲストモードではともだち機能を使えません。アカウント登録すると使えます。</p>
+    </div>
+    <div id="frBody" class="fr-body">
+      <div class="win" id="frReqWin" hidden>
+        <h2>申請</h2>
+        <div id="frReq" class="frlist"></div>
+      </div>
+      <div class="win">
+        <h2>ともだち</h2>
+        <div id="frList" class="frlist"></div>
+        <button class="btn" id="frRefresh">更新</button>
+      </div>
+    </div>
+  </section>
+
+  <section data-view="friendDetail" hidden>
+    <div class="win">
+      <button class="btn small" id="frBack">◀ ともだち一覧にもどる</button>
+      <div id="frDetail"></div>
+    </div>
+    <div class="win">
+      <h2>倒したモンスター</h2>
+      <p class="dim">このともだちが撃破した、魔王と小さな怪物です。新しい順に並びます。</p>
+      <div id="frDefeats" class="history"></div>
+    </div>
+  </section>
+
+  <section data-view="history" hidden>
+    <div class="win">
+      <h2>れきし</h2>
+      <div id="historyList" class="history"></div>
+    </div>
+  </section>
+
+  <section data-view="boss" hidden>
+    <div class="win">
+      <h2>大目標</h2>
+      <div id="jobBox" class="body"></div>
+    </div>
+    <div class="win" id="splitWin" hidden>
+      <h2>軍師の提案</h2>
+      <p class="body" id="splitTitle"></p>
+      <p class="dim" id="splitMsg" hidden></p>
+      <p class="foe" id="splitErr" role="alert" hidden></p>
+      <div id="candList2" class="cands"></div>
+      <div class="row">
+        <button class="btn primary" id="addCands" hidden>選んだものを追加</button>
+        <button class="btn" id="closeSplit">閉じる</button>
+      </div>
+    </div>
+    <div class="win">
+      <h2>目標の木(大目標ごと)</h2>
+      <p class="dim">どの目標も「AIに分けてもらう」で、満足するまで細かく分けられます。いちばん小さい目標を「撃破した!」にして、子目標をすべて倒すと、上の目標に「撃破する」ボタンが出ます。倒した目標は「れきし」に移ります。</p>
+      <div id="tree" class="tree"></div>
+    </div>
+  </section>
+
   <section data-view="status" hidden>
-    <!-- レーダーチャートと各種能力値 -->
     <div class="win">
       <h2>ステータス</h2>
-      <svg class="radar" id="radar" viewBox="0 0 360 330" role="img" aria-label="6つの能力のレーダーチャート"></svg>
-      <div class="stats" id="stats"></div>
+      <div id="statBox"></div>
     </div>
-
-    <!-- 職業適合度・就職判定 -->
     <div class="win">
-      <h2>将来像への適性分析</h2>
-      <p class="dim">目指す職業を選択すると、適合度と必要基準の到達度を計算します。</p>
-      <select id="jobSelect" class="select-box"></select>
-      <div id="jobAnalysisResult" class="body" style="margin-top:10px;"></div>
-    </div>
-
-    <!-- 資格インベントリ -->
-    <div class="win">
-      <h2>資格・スキルインベントリ</h2>
-      <p class="dim">取得した資格にチェックを入れると、ボーナス経験値を獲得できます。</p>
-      <div id="certList" style="display:flex; flex-direction:column; gap:12px; margin-top:8px;"></div>
-    </div>
-
-    <!-- 軍師の助言 -->
-    <div class="win">
-      <h2>軍師の助言</h2>
-      <div id="swot" class="body"></div>
-    </div>
-
-    <!-- 勇者の名前設定 -->
-    <div class="win">
-      <h2>勇者の名前</h2>
-      <input type="text" id="nameIn" maxlength="12" aria-label="勇者の名前" placeholder="勇者">
-      <p class="dim">日誌の主人公の名前になります。</p>
+      <h2>そうび</h2>
+      <p class="dim">レベルが上がると装備が手に入り、自動で身につけます。</p>
+      <div id="gearList" class="gears"></div>
     </div>
   </section>
 
-  <!-- ④ 冒険日誌画面 -->
-  <section data-view="diary" hidden>
+  <section data-view="settings" hidden>
     <div class="win">
-      <h2>冒険日誌</h2>
-      <p class="dim">日付が変わった日の冒険は、このページを開いたときに日誌として残ります。</p>
+      <h2>アカウント</h2>
+      <p class="body" id="acct"></p>
+      <button class="btn" id="logout">ログアウト</button>
     </div>
-    <div id="diary" style="display:flex;flex-direction:column;gap:18px"></div>
-  </section>
-
-  <!-- ⑤ 振り返り画面 -->
-  <section data-view="review" hidden>
     <div class="win">
-      <h2>成長の記録</h2>
-      <div class="seg" role="radiogroup" aria-label="期間">
-        <label><input type="radio" name="period" value="7" checked>この1週間</label>
-        <label><input type="radio" name="period" value="30">この1か月</label>
+      <h2>勇者と目標</h2>
+      <label class="fld">勇者の名前<input type="text" id="setName" maxlength="12"></label>
+      <label class="fld">最終目標(目指す職業)<input type="text" id="setJob" maxlength="60"></label>
+    </div>
+    <div class="win">
+      <h2>バックアップ</h2>
+      <div class="row">
+        <button class="btn" id="exportBtn">書き出す</button>
+        <label class="btn filebtn">読み込む<input type="file" id="importFile" accept="application/json" hidden></label>
       </div>
-      <div id="sumline" class="body"></div>
-      <svg class="radar" id="radar2" viewBox="0 0 360 330" role="img" aria-label="期間内の獲得経験値のレーダーチャート"></svg>
-    </div>
-    <div class="win">
-      <h2>冒険の履歴</h2>
-      <div id="log"></div>
-      <button class="btn" id="clearSample" hidden>サンプルの記録を消す</button>
+      <p class="dim" id="setMsg"></p>
     </div>
   </section>
 </div>
 
-<!-- 下部ナビゲーションメニュー -->
-<nav class="menu" aria-label="コマンド">
+<div class="modal" id="newGoalWin" hidden role="dialog" aria-modal="true" aria-labelledby="ngH">
+  <div class="win">
+    <h2 id="ngH">新しい魔王</h2>
+    <p class="body">魔王を倒しました!次の最終目標を決めましょう。入力した目標が、新しい魔王になります。</p>
+    <input type="text" id="ngTitle" maxlength="60" placeholder="例: 海外のゲーム会社に就職する" aria-label="新しい最終目標">
+    <div class="row">
+      <button class="btn primary" id="ngOk">新しい魔王を呼ぶ</button>
+      <button class="btn" id="ngLater">あとで決める</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<nav class="menu" id="menu" aria-label="コマンド" hidden>
   <div>
     <button data-tab="record" role="tab" aria-selected="true">ぼうけん</button>
+    <button data-tab="boss" role="tab">ボス</button>
+    <button data-tab="daily" role="tab">デイリー</button>
+    <button data-tab="friends" role="tab">ともだち</button>
+    <button data-tab="history" role="tab">れきし</button>
     <button data-tab="status" role="tab">ステータス</button>
-    <button data-tab="diary" role="tab">日誌</button>
-    <button data-tab="review" role="tab">ふりかえり</button>
+    <button data-tab="settings" role="tab">せってい</button>
   </div>
 </nav>
 
-<script src="script.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
