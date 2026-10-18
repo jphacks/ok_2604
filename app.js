@@ -857,7 +857,7 @@ function renderDaily() {
     let btns = '';
     if (done) btns = '';
     else if (running) btns = `<button class="btn small" data-act="dailyPause" data-id="${m.id}">中断</button>` +
-      (reached ? `<button class="btn small primary" data-act="dailyFinish" data-id="${m.id}">${m.minutes ? '撃破' : '結束'}</button>` : '');
+      (reached ? `<button class="btn small primary" data-act="dailyFinish" data-id="${m.id}">${m.minutes ? '撃破' : '終了'}</button>` : '');
     else btns = `<button class="btn small primary" data-act="dailyStart" data-id="${m.id}">${sec > 0 ? '再開' : '開始'}</button>` +
       (m.minutes && reached ? `<button class="btn small" data-act="dailyFinish" data-id="${m.id}">撃破</button>` : '');
     const meta = `${DAILY_MONSTERS[m.mon].name} ・ ` + (m.minutes
