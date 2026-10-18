@@ -1,6 +1,6 @@
 # 一緒に冒険
 
-[![IMAGE ALT TEXT HERE](https://jphacks.com/wp-content/uploads/2026/07/IMG_5316.png)](https://www.youtube.com/watch?v=piaNsc6ilBI)
+https://github.com/jphacks/ok_2604/blob/main/%E3%82%B9%E3%82%AF%E3%83%AA%E3%83%BC%E3%83%B3%E3%82%B7%E3%83%A7%E3%83%83%E3%83%88%200008-10-18%2014.44.46.png
 
 ## 製品概要
 ### 将来の夢に向けて挑戦したとしても先が長く，何をすればいいかわからなくなってしまう。
