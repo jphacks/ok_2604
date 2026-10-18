@@ -55,7 +55,7 @@ const K_SESSION = 'liferpg.v3.session';
 const K_API = 'liferpg.v3.api';
 const saveKey = () => 'liferpg.v3.save.' + (session && !session.guest ? session.user.toLowerCase() : '_guest');
 
-const newState = () => ({ v: 3, hero: '', job: '', status: '', onboarded: false, employed: false, threshold: 80, goals: [], focus: '', entries: [] });
+const newState = () => ({ v: 3, hero: '', job: '', status: '', onboarded: false, goals: [], focus: '', entries: [], studies: [], study: null });
 
 let session = null;
 let state = newState();
@@ -87,17 +87,21 @@ function normalize(s) {
   const o = { ...base, ...s, v: 3 };
   o.goals = normalizeGoals(s.goals, s.job);
   o.focus = String(s.focus || '');
+  o.studies = (Array.isArray(s.studies) ? s.studies : []).filter(x => x && x.subject).map(x => ({
+    t: Number(x.t) || Date.now(), subject: String(x.subject).slice(0, 40), minutes: clampInt(x.minutes, 1, 720), exp: clampInt(x.exp, 1, 300)
+  }));
+  o.study = s.study && s.study.subject && Number(s.study.startedAt) > 0
+    ? { subject: String(s.study.subject).slice(0, 40), startedAt: Number(s.study.startedAt) } : null;
   o.entries = (Array.isArray(s.entries) ? s.entries : []).filter(e => e && (e.exp != null || Array.isArray(e.gains))).map(e => ({
     t: Number(e.t) || Date.now(), text: String(e.text || '').slice(0, 500), mood: e.mood || 'flat',
     exp: e.exp != null ? clampInt(e.exp, 0, 1000) : e.gains.reduce((a, g) => a + (+g.v || 0), 0)
   }));
-  o.threshold = clampInt(o.threshold, 10, 100) || 80;
   return o;
 }
 
 /* 経験値 = 日々の記録 + 撃破したボスの報酬 */
 function totalExp() {
-  return state.entries.reduce((a, e) => a + e.exp, 0) + state.goals.reduce((a, g) => a + (g.done ? expOfDepth(depthOf(g)) : 0), 0);
+  return state.entries.reduce((a, e) => a + e.exp, 0) + state.studies.reduce((a, x) => a + x.exp, 0) + state.goals.reduce((a, g) => a + (g.done ? expOfDepth(depthOf(g)) : 0), 0);
 }
 
 function lvInfo() {
@@ -112,11 +116,6 @@ function gearTiers(lv = lvInfo().lv) {
   const g = {};
   GEAR.forEach(p => g[p.slot] = p.lv.filter(l => lv >= l).length);
   return g;
-}
-
-function progress() {
-  const leaves = state.goals.filter(isLeaf);
-  return leaves.length ? Math.round(leaves.filter(g => g.done).length / leaves.length * 100) : 0;
 }
 
 const snapshot = () => ({ lv: lvInfo().lv, gear: gearTiers() });
@@ -162,6 +161,7 @@ function setSync(msg) { $('#sync').textContent = msg; }
 function save() {
   lsSet(saveKey(), JSON.stringify(state));
   if (!session || session.guest) { setSync('端末に保存'); return; }
+  queueProfile();
   setSync('保存中…');
   clearTimeout(syncTimer);
   syncTimer = setTimeout(pushSave, 1200);
@@ -255,7 +255,18 @@ let splitFor = '';
 
 const byId = id => state.goals.find(g => g.id === id);
 const kids = id => state.goals.filter(g => g.parentId === id);
-const rootNode = () => state.goals.find(g => !g.parentId);
+const roots = () => state.goals.filter(g => !g.parentId);
+function rootOf(g) {
+  let p = g, n = 0;
+  while (p && p.parentId && n++ < 50) p = byId(p.parentId);
+  return p;
+}
+/* いま挑戦中の大目標:選んだ目標が属する木。それが倒れていれば、残っている最初の大目標 */
+function currentRoot() {
+  const f = state.focus && byId(state.focus), fr = f && rootOf(f);
+  if (fr && !fr.done) return fr;
+  return roots().find(r => !r.done) || null;
+}
 const isLeaf = g => !state.goals.some(x => x.parentId === g.id);
 const tierOfDepth = d => Math.max(0, 4 - d);
 const expOfDepth = d => EXP_BY_DEPTH[Math.min(d, EXP_BY_DEPTH.length - 1)];
@@ -300,8 +311,7 @@ const stageBoss = g => ({ id: g.id, title: g.title, tier: tierOfDepth(depthOf(g)
 function focusNode() {
   const f = state.focus && byId(state.focus);
   if (f && !f.done) return f;
-  const r = rootNode();
-  return r && !r.done ? r : null;
+  return currentRoot();
 }
 
 function refreshStage() {
@@ -313,7 +323,7 @@ function refreshStage() {
 function refreshHud() {
   const li = lvInfo();
   $('#heroName').textContent = state.hero || '勇者';
-  $('#cls').textContent = state.employed && state.job ? `〈${state.job}〉` : `〈${rankOf(li.lv)}〉`;
+  $('#cls').textContent = `〈${rankOf(li.lv)}〉`;
   $('#lv').textContent = 'Lv.' + li.lv;
   $('#lvbar').style.width = li.pct + '%';
   $('#nextxp').textContent = '次まで' + li.rest;
@@ -326,10 +336,13 @@ function refreshHud() {
 /* 木を変えたあとの共通処理:撃破の演出・保存・表示更新・レベルアップ通知 */
 function finishChange(prevDone, before) {
   const newly = state.goals.filter(g => g.done && !prevDone.has(g.id)).sort((a, b) => depthOf(b) - depthOf(a));
+  const bigNew = newly.find(g => !g.parentId);
+  if (bigNew) bigNew.collapsed = true;          // 倒した大目標は畳んで、ボス画面が長くならないようにする
   save();
   if (newly.length) {
     toast(...newly.slice(0, 4).map(g => `${g.title} を撃破! +${expOfDepth(depthOf(g))} EXP`));
-    Stage.playDefeat(stageBoss(newly[newly.length - 1]), refreshStage);
+    if (bigNew) Stage.playDefeat(stageBoss(bigNew), () => { refreshStage(); openNewGoal(); }, true);
+    else Stage.playDefeat(stageBoss(newly[newly.length - 1]), refreshStage);
   } else refreshStage();
   refreshHud();
   announce(before);
@@ -377,31 +390,22 @@ function drawThumb(canvas, tier) {
 }
 
 function renderBossTab() {
-  const root = rootNode(), p = progress();
-  let box = '';
-  if (!root) {
-    box = `<p class="dim">最終目標がまだありません。いちばん大きな目標(なりたい姿)を入力しましょう。</p>
-      <input type="text" id="rootTitle" maxlength="60" placeholder="例: ゲーム開発の仕事に就く" aria-label="最終目標">
-      <button class="btn primary" data-act="addRoot">最終目標を決める</button>`;
-  } else {
-    const ready = !state.employed && p >= state.threshold;
-    if (state.employed) box += `<div class="job-unlocked"><h3>★ 現在の職業:${esc(state.job)}</h3><p class="dim">夢をかなえました!</p></div>`;
-    else if (ready) box += `<div class="job-unlocked"><h3>🎉 就職条件クリア!</h3><p class="dim">達成率が ${state.threshold}% を超えました。</p><button class="btn primary" data-act="employ">この職業に就く!</button></div>`;
-    box += `<p>最終目標:<b style="color:var(--gold)">${esc(root.title)}</b></p>
-      <div class="prog" role="progressbar" aria-valuenow="${p}" aria-valuemin="0" aria-valuemax="100"><i style="width:${p}%"></i></div>
-      <p class="dim">達成率 ${p}%(いちばん小さい目標のうち撃破した割合 / 就職の目安 ${state.threshold}%)</p>`;
-  }
-  $('#jobBox').innerHTML = box;
+  const cur = currentRoot();
+  $('#jobBox').innerHTML = `${cur ? `<p>挑戦中の大目標:<b style="color:var(--gold)">${esc(cur.title)}</b></p>` : '<p class="dim">挑戦中の大目標はありません。下で新しい大目標を決めましょう。</p>'}
+    <p class="dim">大目標(魔王)は、同時にいくつでも持てます。「これに挑戦する」で、いつでも切り替えられます。</p>
+    <div class="addrow"><input type="text" id="rootTitle" maxlength="60" placeholder="新しい大目標(例: ゲーム開発の仕事に就く)" aria-label="新しい大目標"><button class="btn small primary" data-act="addRoot">追加</button></div>`;
   renderTree();
 }
 
 function renderTree() {
-  const root = rootNode(), host = $('#tree');
-  if (!root) { host.innerHTML = ''; return; }
+  const host = $('#tree'), cur = currentRoot();
+  const list = roots().sort((a, b) => (b === cur) - (a === cur) || a.done - b.done);
+  if (!list.length) { host.innerHTML = '<p class="dim">大目標がまだありません。</p>'; return; }
   const draw = (g, d) => {
     const ks = kids(g.id), lc = leafCount(g.id), open = !g.collapsed, tier = tierOfDepth(d);
-    const meta = `${MONSTERS[tier].name}${lc ? ` ・ ${lc.done}/${lc.total}` : ''}${g.done ? ' ・ 撃破!' : ''}`;
-    return `<div class="node ${g.done ? 'done' : ''}">
+    const isCur = d === 0 && cur && cur.id === g.id;
+    const meta = `${MONSTERS[tier].name}${isCur ? ' ・ 挑戦中' : ''}${lc ? ` ・ ${lc.done}/${lc.total}` : ''}${g.done ? ' ・ 撃破!' : ''}`;
+    return `<div class="node ${g.done ? 'done' : ''} ${isCur ? 'current' : ''}">
       <div class="nrow">
         ${ks.length ? `<button class="tgl" data-act="fold" data-id="${g.id}" aria-label="${open ? '閉じる' : '開く'}">${open ? '▾' : '▸'}</button>` : '<span class="tgl"></span>'}
         <canvas class="ico" width="48" height="48" data-tier="${tier}"></canvas>
@@ -409,7 +413,7 @@ function renderTree() {
       </div>
       <div class="bact">
         ${ks.length ? '' : `<button class="btn small ${g.done ? '' : 'primary'}" data-act="tick" data-id="${g.id}">${g.done ? '撃破を取り消す' : '撃破した!'}</button>`}
-        ${g.done ? '' : `<button class="btn small" data-act="show" data-id="${g.id}">アニメに映す</button>`}
+        ${g.done || isCur ? '' : `<button class="btn small" data-act="show" data-id="${g.id}">${d === 0 ? 'これに挑戦する' : 'アニメに映す'}</button>`}
         <button class="btn small" data-act="split" data-id="${g.id}">AIに分けてもらう</button>
         <button class="btn small" data-act="addOpen" data-id="${g.id}">子目標を追加</button>
         <button class="btn small" data-act="remove" data-id="${g.id}">削除</button>
@@ -418,7 +422,7 @@ function renderTree() {
       ${open ? ks.map(k => draw(k, d + 1)).join('') : ''}
     </div>`;
   };
-  host.innerHTML = draw(root, 0);
+  host.innerHTML = list.map(r => draw(r, 0)).join('');
   host.querySelectorAll('canvas').forEach(c => drawThumb(c, +c.dataset.tier));
   const input = $('#addTitle');
   if (input) input.focus();
@@ -502,12 +506,241 @@ function addManualChild(id) {
   finishChange(prev, before);
 }
 
-function addRoot() {
-  const title = ($('#rootTitle').value || '').trim();
-  if (!title) { $('#rootTitle').focus(); return; }
+function addRoot(fromModal) {
+  const input = fromModal ? $('#ngTitle') : $('#rootTitle');
+  const title = (input.value || '').trim();
+  if (!title) { input.focus(); return; }
   const root = { id: uid(), parentId: null, title: title.slice(0, 60), desc: '', done: false, doneAt: 0, collapsed: false };
-  state.goals = [root]; state.job = root.title; state.focus = root.id;
-  save(); refreshStage(); renderBossTab();
+  state.goals.push(root); state.focus = root.id;
+  input.value = '';
+  if (fromModal) $('#newGoalWin').hidden = true;
+  save(); refreshStage(); refreshHud();
+  toast('新しい魔王があらわれた!');
+}
+
+/* 大目標(魔王)を倒したあと:次の最終目標を入力してもらう */
+function openNewGoal() {
+  $('#newGoalWin').hidden = false;
+  $('#ngTitle').value = '';
+  setTimeout(() => $('#ngTitle').focus(), 50);
+}
+
+/* ================= ともだちに見せる公開プロフィール ================= */
+let lastProfile = '', profTimer = 0;
+
+function profileData() {
+  const f = focusNode(), r = currentRoot();
+  return {
+    name: state.hero || '勇者', finalGoal: r ? r.title : '',
+    defeats: state.goals.filter(g => g.done && g.doneAt).sort((a, b) => b.doneAt - a.doneAt).slice(0, 50)
+      .map(g => ({ title: g.title, tier: tierOfDepth(depthOf(g)), t: g.doneAt })),
+    focus: f ? { title: f.title, tier: tierOfDepth(depthOf(f)) } : null,
+    level: lvInfo().lv, gear: gearTiers(),
+    studying: state.study ? { subject: state.study.subject, since: state.study.startedAt } : null
+  };
+}
+
+function queueProfile(now) {
+  if (!session || session.guest || !apiBase() || !state.onboarded) return;
+  clearTimeout(profTimer);
+  profTimer = setTimeout(async () => {
+    const d = profileData(), j = JSON.stringify(d);
+    if (j === lastProfile) return;
+    try { await api('/profile', { method: 'PUT', body: d }); lastProfile = j; } catch (e) { /* 次の保存でまた送る */ }
+  }, now ? 0 : 2500);
+}
+
+/* ================= 勉強タイマー ================= */
+const fmtClock = ms => {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return [Math.floor(s / 3600), Math.floor(s % 3600 / 60), s % 60].map(n => String(n).padStart(2, '0')).join(':');
+};
+
+function renderStudy() {
+  const box = $('#studyBox');
+  if (state.study) {
+    box.innerHTML = `<p class="body">勉強中:<b style="color:var(--gold)">${esc(state.study.subject)}</b></p>
+      <div class="bignum" id="studyClock">${fmtClock(Date.now() - state.study.startedAt)}</div>
+      <button class="btn primary" id="studyStop">終了して経験値にする</button>`;
+    $('#studyStop').onclick = stopStudy;
+  } else {
+    box.innerHTML = `<input type="text" id="studySubject" maxlength="40" placeholder="例: TOEICの単語 / Pythonの教科書 第3章" aria-label="勉強する内容">
+      <button class="btn primary" id="studyStart">勉強をはじめる</button>`;
+    $('#studyStart').onclick = startStudy;
+  }
+}
+
+function startStudy() {
+  const subject = ($('#studySubject').value || '').trim();
+  if (!subject) { $('#studySubject').focus(); return; }
+  state.study = { subject: subject.slice(0, 40), startedAt: Date.now() };
+  $('#studyResult').hidden = true;
+  save(); queueProfile(true); renderStudy();
+}
+
+async function judgeStudy(subject, minutes) {
+  try {
+    const r = await api('/study', { method: 'POST', body: { subject, minutes } });
+    return clampInt(r.exp, 1, 300) || 1;
+  } catch (e) {
+    if (e.status === 401) throw e;
+    return clampInt(Math.round(minutes / 2), 1, 100);   // AIが使えないときは 2分=1EXP
+  }
+}
+
+async function stopStudy() {
+  if (busy || !state.study) return;
+  const st = state.study, now = Date.now(), minutes = Math.min(720, Math.floor((now - st.startedAt) / 60000));
+  if (minutes < 1) {
+    if (!confirm('1分未満のため経験値は入りません。記録せずに終了しますか?')) return;
+    state.study = null; save(); queueProfile(true); renderStudy(); return;
+  }
+  busy = true; $('#studyStop').disabled = true; $('#studyStop').textContent = '計算中…';
+  try {
+    const before = snapshot();
+    const exp = await judgeStudy(st.subject, minutes);
+    state.studies.push({ t: now, subject: st.subject, minutes, exp });
+    state.study = null;
+    save(); queueProfile(true);
+    $('#studyResult').textContent = `「${st.subject}」を ${minutes}分 勉強して +${exp} EXP`;
+    $('#studyResult').hidden = false;
+    refreshHud(); announce(before);
+  } catch (e) {
+    if (e.status === 401) { logout('セッションが切れました。もう一度ログインしてください。'); return; }
+  } finally {
+    busy = false; renderStudy();
+  }
+}
+
+/* ================= 履歴 ================= */
+function renderHistory() {
+  const items = [
+    ...state.entries.map(e => ({ t: e.t, kind: '記録', text: e.text, exp: e.exp })),
+    ...state.studies.map(x => ({ t: x.t, kind: '勉強', text: `${x.subject}(${x.minutes}分)`, exp: x.exp })),
+    ...state.goals.filter(g => g.done && g.doneAt).map(g => ({
+      t: g.doneAt, kind: '撃破', text: `${MONSTERS[tierOfDepth(depthOf(g))].name}「${g.title}」`, exp: expOfDepth(depthOf(g))
+    }))
+  ].sort((a, b) => b.t - a.t).slice(0, 300);
+  let html = '', day = '';
+  items.forEach(it => {
+    const d = new Date(it.t).toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
+    if (d !== day) { html += `<div class="hday">${d}</div>`; day = d; }
+    const hm = new Date(it.t).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+    html += `<div class="hitem"><span class="tag">${it.kind}</span><span class="body">${esc(it.text)}</span><span class="hexp">${hm} ・ +${it.exp} EXP</span></div>`;
+  });
+  $('#historyList').innerHTML = html || '<p class="dim">まだ履歴がありません。記録や勉強をはじめると、ここに残ります。</p>';
+}
+
+/* ================= ともだち ================= */
+let friendsData = null;
+
+async function loadFriends() {
+  const body = $('#frBody');
+  if (session.guest) {
+    body.hidden = true; $('#frGuest').hidden = false; return;
+  }
+  body.hidden = false; $('#frGuest').hidden = true;
+  try {
+    friendsData = await api('/friends');
+    renderFriends();
+    if (!$('[data-view=friendDetail]').hidden) renderFriendDetail();
+  } catch (e) {
+    if (e.status === 401) { logout('セッションが切れました。もう一度ログインしてください。'); return; }
+    $('#frList').innerHTML = `<p class="foe">${esc(e.message)}</p>`;
+  }
+}
+
+function renderFriends() {
+  const d = friendsData || { friends: [], incoming: [], outgoing: [] };
+  const reqRows = [
+    ...d.incoming.map(u => `<div class="frrow"><span class="body">${esc(u.user)} さんから申請</span><span class="bact"><button class="btn small primary" data-act="frAccept" data-id="${esc(u.id)}">承認</button><button class="btn small" data-act="frDecline" data-id="${esc(u.id)}">断る</button></span></div>`),
+    ...d.outgoing.map(u => `<div class="frrow"><span class="body">${esc(u.user)} さんに申請中</span><span class="bact"><button class="btn small" data-act="frCancel" data-id="${esc(u.id)}">取り消す</button></span></div>`)
+  ];
+  $('#frReq').innerHTML = reqRows.join('');
+  $('#frReqWin').hidden = !reqRows.length;
+
+  $('#frList').innerHTML = d.friends.map(f => {
+    const p = f.profile;
+    let info = '<div class="bmeta">まだ公開情報がありません。</div>';
+    if (p) {
+      const mins = p.studying ? Math.max(0, Math.floor((Date.now() - p.studying.since) / 60000)) : 0;
+      info = `<div class="btitle">${esc(p.name || f.user)} <span class="dim">Lv.${p.level}</span></div>
+        <div class="bmeta">最終目標:${esc(p.finalGoal || '未設定')}</div>
+        <div class="bmeta">挑戦中:${p.focus ? `${MONSTERS[p.focus.tier].name}「${esc(p.focus.title)}」` : 'なし'}</div>
+        ${p.studying ? `<div class="studying">「${esc(p.studying.subject)}」を勉強中(${mins}分)</div>` : ''}`;
+    }
+    return `<div class="friend">
+      <canvas class="avatar" width="56" height="60" data-gear='${esc(JSON.stringify(p ? p.gear : {}))}'></canvas>
+      <div class="ftxt">${info}<div class="bmeta">ユーザー名:${esc(f.user)}</div></div>
+      <div class="fbtns"><button class="btn small" data-act="frDetail" data-id="${esc(f.id)}">詳細</button><button class="btn small" data-act="frRemove" data-id="${esc(f.id)}">削除</button></div>
+    </div>`;
+  }).join('') || '<p class="dim">まだともだちがいません。上の欄から、相手のユーザー名を入力して申請しましょう。</p>';
+  $$('#frList canvas.avatar').forEach(c => {
+    const ctx = c.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    try { drawHero(ctx, 4, 8, 3, JSON.parse(c.dataset.gear), 0, false); } catch { /* 表示できなくても続行 */ }
+  });
+}
+
+let detailId = '';
+
+function renderFriendDetail() {
+  const f = ((friendsData || {}).friends || []).find(x => x.id === detailId);
+  if (!f) { $('#frDetail').innerHTML = '<p class="dim">このともだちは見つかりません。</p>'; $('#frDefeats').innerHTML = ''; return; }
+  const p = f.profile;
+  if (!p) {
+    $('#frDetail').innerHTML = `<div class="btitle">${esc(f.user)}</div><p class="dim">まだ公開情報がありません。</p>`;
+    $('#frDefeats').innerHTML = '';
+    return;
+  }
+  const mins = p.studying ? Math.max(0, Math.floor((Date.now() - p.studying.since) / 60000)) : 0;
+  $('#frDetail').innerHTML = `<div class="friend detail">
+    <canvas class="avatar" width="56" height="60" data-gear='${esc(JSON.stringify(p.gear || {}))}'></canvas>
+    <div class="ftxt"><div class="btitle">${esc(p.name || f.user)} <span class="dim">Lv.${p.level}</span></div>
+      <div class="bmeta">ユーザー名:${esc(f.user)}</div>
+      <div class="bmeta">最終目標:${esc(p.finalGoal || '未設定')}</div>
+      <div class="bmeta">挑戦中:${p.focus ? `${MONSTERS[p.focus.tier].name}「${esc(p.focus.title)}」` : 'なし'}</div>
+      ${p.studying ? `<div class="studying">「${esc(p.studying.subject)}」を勉強中(${mins}分)</div>` : ''}</div></div>`;
+  $$('#frDetail canvas.avatar').forEach(c => {
+    const ctx = c.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    try { drawHero(ctx, 4, 8, 3, JSON.parse(c.dataset.gear), 0, false); } catch { /* 表示できなくても続行 */ }
+  });
+  const ds = (p.defeats || []).slice().sort((a, b) => b.t - a.t);
+  let html = '', day = '';
+  ds.forEach(x => {
+    const d = new Date(x.t).toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' });
+    if (d !== day) { html += `<div class="hday">${d}</div>`; day = d; }
+    html += `<div class="hitem"><span class="tag">${MONSTERS[x.tier] ? MONSTERS[x.tier].name : '怪物'}</span><span class="body">${esc(x.title)}</span></div>`;
+  });
+  $('#frDefeats').innerHTML = html || '<p class="dim">まだ倒したモンスターはいません。</p>';
+}
+
+async function friendCall(action, username) {
+  try {
+    const r = await api('/friends/' + action, { method: 'POST', body: { username } });
+    await loadFriends();
+    return r;
+  } catch (e) {
+    if (e.status === 401) { logout('セッションが切れました。もう一度ログインしてください。'); return null; }
+    toast(e.message); return null;
+  }
+}
+
+async function sendFriendRequest() {
+  const name = $('#frName').value.trim();
+  const msg = $('#frMsg');
+  if (!name) { $('#frName').focus(); return; }
+  msg.hidden = false; msg.className = 'dim'; msg.textContent = '送信中…';
+  try {
+    const r = await api('/friends/request', { method: 'POST', body: { username: name } });
+    $('#frName').value = '';
+    msg.textContent = r.status === 'friends' ? 'ともだちになりました!' : '申請しました。相手の承認を待っています。';
+    await loadFriends();
+  } catch (e) {
+    if (e.status === 401) { logout('セッションが切れました。もう一度ログインしてください。'); return; }
+    msg.className = 'foe'; msg.textContent = e.message;
+  }
 }
 
 /* ================= ステータス(EXPとレベル・装備のみ) ================= */
@@ -537,10 +770,15 @@ function screen(name) {
 function show(v) {
   screen('main');
   $$('[data-view]').forEach(s => s.hidden = s.dataset.view !== v);
-  $$('.menu button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === v)));
+  const tabOf = v === 'friendDetail' ? 'friends' : v;
+  $$('.menu button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === tabOf)));
   refreshHud();
   if (v === 'boss') renderBossTab();
   if (v === 'status') renderStatus();
+  if (v === 'record') renderStudy();
+  if (v === 'history') renderHistory();
+  if (v === 'friends') loadFriends();
+  if (v === 'friendDetail') renderFriendDetail();
   if (v === 'settings') renderSettings();
   window.scrollTo(0, 0);
 }
@@ -548,8 +786,8 @@ function show(v) {
 function renderSettings() {
   $('#acct').textContent = session.guest ? 'ゲストモード(この端末だけに保存されます)' : `ログイン中:${session.user}`;
   $('#setName').value = state.hero;
-  $('#setJob').value = state.job;
-  $('#setThr').value = state.threshold;
+  const cr = currentRoot();
+  $('#setJob').value = cr ? cr.title : '';
   $('#logout').textContent = session.guest ? 'ゲストを終了して戻る' : 'ログアウト';
 }
 
@@ -589,10 +827,12 @@ async function enterGame() {
     try { loaded = JSON.parse(lsGet(saveKey())); } catch {}
   }
   state = normalize(loaded);
+  lastProfile = ''; friendsData = null;
   setSync(session.guest ? '端末に保存' : '☁ 保存済み');
   Stage.setGear(gearTiers());
   refreshStage();
   refreshHud();
+  queueProfile(true);
   if (state.onboarded) show('record');
   else startOnboard();
 }
@@ -663,6 +903,16 @@ function bind() {
     const reg = r.value === 'register' && r.checked;
     if (r.checked) { $('#authGo').textContent = reg ? '登録してはじめる' : 'ログインする'; $('#authPass').autocomplete = reg ? 'new-password' : 'current-password'; }
   });
+  const isTextField = el => el && el.matches && el.matches('textarea, select, input:not([type=radio]):not([type=checkbox]):not([type=file])');
+  document.addEventListener('focusin', e => {
+    if (!isTextField(e.target)) return;
+    document.body.classList.add('typing');
+    setTimeout(() => e.target.scrollIntoView({ block: 'center', behavior: 'smooth' }), 300);
+  });
+  document.addEventListener('focusout', () => {
+    setTimeout(() => { if (!isTextField(document.activeElement)) document.body.classList.remove('typing'); }, 150);
+  });
+
   $('#authGo').onclick = authSubmit;
   $('#authPass').onkeydown = e => { if (e.key === 'Enter') authSubmit(); };
   $('#guestGo').onclick = async () => {
@@ -684,6 +934,19 @@ function bind() {
   };
 
   $('#go').onclick = submit;
+  $('#frSend').onclick = sendFriendRequest;
+  $('#frRefresh').onclick = loadFriends;
+  $('#frBack').onclick = () => show('friends');
+  $('#ngOk').onclick = () => addRoot(true);
+  $('#ngLater').onclick = () => { $('#newGoalWin').hidden = true; };
+  setInterval(() => {
+    const c = $('#studyClock');
+    if (c && state.study) c.textContent = fmtClock(Date.now() - state.study.startedAt);
+  }, 1000);
+  setInterval(() => {
+    const active = $('#menu button[aria-selected=true]')?.dataset.tab;
+    if (active === 'friends' && session && !session.guest && !document.hidden) loadFriends();
+  }, 30000);
   $$('.menu button').forEach(b => b.onclick = () => show(b.dataset.tab));
 
   document.addEventListener('change', e => {
@@ -698,21 +961,25 @@ function bind() {
     if (act === 'tick') tickLeaf(id);
     else if (act === 'remove') removeNode(id);
     else if (act === 'fold') { const g = byId(id); if (g) { g.collapsed = !g.collapsed; save(); renderTree(); } }
-    else if (act === 'show') { state.focus = id; save(); refreshStage(); window.scrollTo({ top: 0, behavior: 'smooth' }); toast('アニメに映しました'); }
+    else if (act === 'show') { state.focus = id; save(); refreshStage(); refreshHud(); window.scrollTo({ top: 0, behavior: 'smooth' }); toast('アニメに映しました'); }
     else if (act === 'split') openSplit(id);
     else if (act === 'addOpen') { addingFor = addingFor === id ? '' : id; renderTree(); }
     else if (act === 'addGo') addManualChild(id);
-    else if (act === 'addRoot') addRoot();
-    else if (act === 'employ') {
-      state.employed = true; save(); refreshHud(); renderBossTab();
-      toast(`おめでとう!${state.job}になった!`);
-    }
+    else if (act === 'addRoot') addRoot(false);
+    else if (act === 'frDetail') { detailId = id; show('friendDetail'); }
+    else if (act === 'frAccept') friendCall('accept', id);
+    else if (act === 'frDecline') friendCall('decline', id);
+    else if (act === 'frCancel') friendCall('cancel', id);
+    else if (act === 'frRemove') { if (confirm('このともだちを削除しますか?(相手のともだちからも消えます)')) friendCall('remove', id); }
   });
 
   document.addEventListener('keydown', e => {
     if (e.key !== 'Enter') return;
     if (e.target.id === 'addTitle' && addingFor) addManualChild(addingFor);
-    else if (e.target.id === 'rootTitle') addRoot();
+    else if (e.target.id === 'rootTitle') addRoot(false);
+    else if (e.target.id === 'ngTitle') addRoot(true);
+    else if (e.target.id === 'studySubject') startStudy();
+    else if (e.target.id === 'frName') sendFriendRequest();
     else if (e.target.id === 'obAddTitle') $('#obAddGo').click();
   });
 
@@ -721,11 +988,9 @@ function bind() {
 
   $('#setName').onchange = e => { state.hero = e.target.value.trim() || '勇者'; save(); refreshHud(); };
   $('#setJob').onchange = e => {
-    state.job = e.target.value.trim();
-    const r = rootNode(); if (r && state.job) { r.title = state.job.slice(0, 60); refreshStage(); }
-    save();
+    const r = currentRoot(), t = e.target.value.trim();
+    if (r && t) { r.title = t.slice(0, 60); save(); refreshStage(); }
   };
-  $('#setThr').onchange = e => { state.threshold = clampInt(e.target.value, 10, 100) || 80; e.target.value = state.threshold; save(); };
   $('#logout').onclick = () => logout();
 
   $('#exportBtn').onclick = () => {

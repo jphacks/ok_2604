@@ -172,8 +172,8 @@ const Stage = (() => {
     idx = (idx + d + bosses.length) % bosses.length;
     spawnAt = performance.now(); notify();
   }
-  function playDefeat(boss, done) {
-    defeat = { boss, start: performance.now(), done };
+  function playDefeat(boss, done, finale) {
+    defeat = { boss, start: performance.now(), done, finale: !!finale };
   }
 
   function bg(now) {
@@ -212,6 +212,39 @@ const Stage = (() => {
     const heroY0 = GROUND - 16 * HERO_S;
     let dx = 0, slash = false, flash = false, knock = 0, hy = 0;
     const boss = defeat ? defeat.boss : cur();
+
+    if (defeat && defeat.finale) {
+      /* 最終目標(魔王)の撃破:長めの演出。ゆれ → 白い閃光 → 消滅 → 大きな文字と紙吹雪 */
+      const d = now - defeat.start, b2 = defeat.boss;
+      const hyF = d > 700 ? -Math.abs(Math.sin(d / 160)) * 12 : 0;
+      drawHero(ctx, HERO_X + 92, heroY0 + hyF, HERO_S, gear, now, d < 600);
+      if (b2) {
+        if (d < 700) drawMonster(b2, null, d % 120 < 60 ? -3 : 0, d > 150 && d % 120 < 60, 1);
+        else if (d < 2000) {
+          const k = (d - 700) / 1300;
+          const r = drawMonster(b2, null, -k * 14, false, 1 - k);
+          for (let i = 0; i < 60; i++) {
+            const a = i * 0.7, sp = 25 + (i % 7) * 16;
+            ctx.fillStyle = i % 3 ? '#ffd34d' : '#ffffff';
+            ctx.fillRect(r.ox + r.w / 2 + Math.cos(a) * sp * k, r.oy + r.h / 2 + Math.sin(a) * sp * k - 24 * k, 3, 3);
+          }
+        }
+      }
+      if ((d > 650 && d < 800) || (d > 1300 && d < 1420)) {
+        ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.fillRect(0, 0, W, H);
+      }
+      if (d > 1400) {
+        const colors = ['#ffd34d', '#7fe8ff', '#ff7a7a', '#5be38a', '#ffffff'];
+        for (let i = 0; i < 46; i++) {
+          const x = (i * 37 + (d - 1400) * 0.04 * (1 + i % 3)) % W;
+          const y = ((d - 1400) * 0.1 * (1 + i % 4) * 0.5 + i * 17) % H;
+          ctx.fillStyle = colors[i % colors.length]; ctx.fillRect(x, y, 4, 4);
+        }
+      }
+      if (d > 900) text('魔王撃破!', W / 2, 66, '#ffd34d', Math.min(40, 24 + (d - 900) / 25));
+      if (d > 3400) { const f = defeat.done; defeat = null; spawnAt = now; f && f(); }
+      return;
+    }
 
     if (defeat) {
       const d = now - defeat.start;

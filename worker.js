@@ -234,6 +234,122 @@ async function split(req, env, user, cors) {
   return reply({ actionable: actionable && !steps.length, note: str(out?.note, 80), steps: actionable ? [] : steps }, 200, cors);
 }
 
+/* ---------- 勉強タイマー(AIがEXPを決める) ---------- */
+const STUDY_SCHEMA = {
+  type: 'OBJECT',
+  properties: { exp: { type: 'INTEGER' } },
+  required: ['exp']
+};
+
+async function study(req, env, user, cors) {
+  const body = await readJson(req);
+  const subject = str(body?.subject, 40).trim();
+  const minutes = clamp(body?.minutes, 1, 720);
+  if (!subject) return reply({ error: '勉強の内容が空です。' }, 400, cors);
+  if (!await aiAllowed(env, user)) return reply({ error: 'AIの利用上限に達しました。しばらくお待ちください。' }, 429, cors);
+
+  const prompt = [
+    'ユーザーが勉強(学習)を終えました。内容と時間から、獲得経験値を決めてください。',
+    '- exp: 整数。目安は1分あたり 0.5〜1.5。難しい内容や集中が必要な内容ほど高く、軽い読み物や復習は低めにする。',
+    `勉強した時間: ${minutes}分`,
+    '<subject>', subject, '</subject>'
+  ].join('\n');
+
+  const out = await gemini(env, prompt, STUDY_SCHEMA);
+  return reply({ exp: clamp(out?.exp, 1, Math.min(300, minutes * 2)) }, 200, cors);
+}
+
+/* ---------- ともだち(申請→承認)と、ともだちに見せる公開プロフィール ---------- */
+const GEAR_SLOTS = ['weapon', 'shield', 'armor', 'head', 'cape', 'aura'];
+const MAX_FRIENDS = 50;
+const lower = s => String(s || '').toLowerCase();
+
+async function getFr(env, u) {
+  const o = JSON.parse(await env.DB.get('fr:' + u) || 'null') || {};
+  return { friends: o.friends || [], incoming: o.incoming || [], outgoing: o.outgoing || [] };
+}
+const putFr = (env, u, o) => env.DB.put('fr:' + u, JSON.stringify(o));
+const without = (arr, x) => arr.filter(v => v !== x);
+const addTo = (arr, x) => (arr.includes(x) ? arr : [...arr, x]);
+
+async function displayOf(env, u) {
+  const rec = JSON.parse(await env.DB.get('user:' + u) || 'null');
+  return rec ? rec.display : u;
+}
+
+async function putProfile(req, env, user, cors) {
+  const b = await readJson(req);
+  if (!b || typeof b !== 'object') return reply({ error: '不正なデータです。' }, 400, cors);
+  const gear = {};
+  GEAR_SLOTS.forEach(k => { gear[k] = clamp(b.gear?.[k], 0, 3); });
+  const focus = b.focus && b.focus.title ? { title: str(b.focus.title, 60), tier: clamp(b.focus.tier, 0, 4) } : null;
+  const studying = b.studying && b.studying.subject
+    ? { subject: str(b.studying.subject, 40), since: clamp(b.studying.since / 1000, 0, 4e9) * 1000 } : null;
+  const defeats = (Array.isArray(b.defeats) ? b.defeats : []).slice(0, 50).filter(x => x && x.title)
+    .map(x => ({ title: str(x.title, 60), tier: clamp(x.tier, 0, 4), t: Math.max(0, Math.round(Number(x.t) || 0)) }));
+  const prof = {
+    name: str(b.name, 12), finalGoal: str(b.finalGoal, 60), focus, defeats,
+    level: clamp(b.level, 1, 999), gear, studying, updated: Date.now()
+  };
+  await env.DB.put('pub:' + user, JSON.stringify(prof));
+  return reply({ ok: true }, 200, cors);
+}
+
+async function listFriends(env, user, cors) {
+  const fr = await getFr(env, user);
+  const friends = await Promise.all(fr.friends.map(async id => {
+    const prof = JSON.parse(await env.DB.get('pub:' + id) || 'null');
+    // 12時間以上前に始めた「勉強中」は終了し忘れとみなして出さない
+    if (prof && prof.studying && Date.now() - prof.studying.since > 12 * 3600 * 1000) prof.studying = null;
+    return { id, user: await displayOf(env, id), profile: prof };
+  }));
+  const named = ids => Promise.all(ids.map(async id => ({ id, user: await displayOf(env, id) })));
+  return reply({ friends, incoming: await named(fr.incoming), outgoing: await named(fr.outgoing) }, 200, cors);
+}
+
+async function friendAction(req, env, user, action, cors) {
+  const b = await readJson(req);
+  const other = lower(b?.username);
+  if (!validUsername(b?.username))
+    return reply({ error: 'ユーザー名が正しくありません。' }, 400, cors);
+  if (other === user) return reply({ error: '自分自身は追加できません。' }, 400, cors);
+
+  const mine = await getFr(env, user);
+
+  if (action === 'request') {
+    if (!await env.DB.get('user:' + other)) return reply({ error: 'そのユーザーは見つかりません。' }, 404, cors);
+    if (mine.friends.includes(other)) return reply({ error: 'すでにともだちです。' }, 409, cors);
+    const theirs = await getFr(env, other);
+    if (mine.incoming.includes(other)) {            // 相手からの申請が来ていれば、そのまま成立
+      mine.friends = addTo(mine.friends, other); mine.incoming = without(mine.incoming, other); mine.outgoing = without(mine.outgoing, other);
+      theirs.friends = addTo(theirs.friends, user); theirs.outgoing = without(theirs.outgoing, user); theirs.incoming = without(theirs.incoming, user);
+      await Promise.all([putFr(env, user, mine), putFr(env, other, theirs)]);
+      return reply({ ok: true, status: 'friends' }, 200, cors);
+    }
+    if (mine.outgoing.length >= 30 || theirs.incoming.length >= MAX_FRIENDS) return reply({ error: '申請が多すぎます。' }, 429, cors);
+    mine.outgoing = addTo(mine.outgoing, other); theirs.incoming = addTo(theirs.incoming, user);
+    await Promise.all([putFr(env, user, mine), putFr(env, other, theirs)]);
+    return reply({ ok: true, status: 'requested' }, 200, cors);
+  }
+
+  const theirs = await getFr(env, other);
+  if (action === 'accept') {
+    if (!mine.incoming.includes(other)) return reply({ error: '申請が見つかりません。' }, 404, cors);
+    if (mine.friends.length >= MAX_FRIENDS || theirs.friends.length >= MAX_FRIENDS) return reply({ error: 'ともだちの上限です。' }, 429, cors);
+    mine.friends = addTo(mine.friends, other); mine.incoming = without(mine.incoming, other);
+    theirs.friends = addTo(theirs.friends, user); theirs.outgoing = without(theirs.outgoing, user);
+  } else if (action === 'decline') {
+    mine.incoming = without(mine.incoming, other); theirs.outgoing = without(theirs.outgoing, user);
+  } else if (action === 'cancel') {
+    mine.outgoing = without(mine.outgoing, other); theirs.incoming = without(theirs.incoming, user);
+  } else if (action === 'remove') {
+    mine.friends = without(mine.friends, other); theirs.friends = without(theirs.friends, user);
+  }
+  await Promise.all([putFr(env, user, mine), putFr(env, other, theirs)]);
+  return reply({ ok: true }, 200, cors);
+}
+
+
 /* ---------- ルーティング ---------- */
 export default {
   async fetch(req, env) {
@@ -252,6 +368,11 @@ export default {
       if (path === '/save' && req.method === 'PUT') return await putSave(req, env, user, cors);
       if (path === '/judge' && req.method === 'POST') return await judge(req, env, user, cors);
       if (path === '/split' && req.method === 'POST') return await split(req, env, user, cors);
+      if (path === '/study' && req.method === 'POST') return await study(req, env, user, cors);
+      if (path === '/profile' && req.method === 'PUT') return await putProfile(req, env, user, cors);
+      if (path === '/friends' && req.method === 'GET') return await listFriends(env, user, cors);
+      const fm = path.match(/^\/friends\/(request|accept|decline|cancel|remove)$/);
+      if (fm && req.method === 'POST') return await friendAction(req, env, user, fm[1], cors);
 
       return reply({ error: 'Not found' }, 404, cors);
     } catch (e) {

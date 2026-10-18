@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
   <title>ライフRPG</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Noto+Sans+JP:wght@400;500;700&display=swap">
   <link rel="stylesheet" href="style.css">
@@ -107,11 +107,62 @@
       <div class="gain"><b>獲得EXP</b><span class="pt" id="expPt"></span></div>
       <p class="dim pre" id="dmg"></p>
     </div>
+    <div class="win" id="studyWin">
+      <h2>べんきょうタイマー</h2>
+      <p class="dim">何を勉強するか入力して「はじめる」。終わったら「終了」を押すと、勉強した内容と時間から経験値が入ります。</p>
+      <div id="studyBox" class="studybox"></div>
+      <p class="body" id="studyResult" hidden></p>
+    </div>
+  </section>
+
+  <section data-view="friends" hidden>
+    <div class="win">
+      <h2>ともだちを追加</h2>
+      <p class="dim">相手のユーザー名を入力して申請します。相手が承認すると、おたがいの目標や勉強中の様子が見えるようになります。</p>
+      <div class="addrow"><input type="text" id="frName" maxlength="20" placeholder="ユーザー名" autocapitalize="off" aria-label="ともだちのユーザー名"><button class="btn small primary" id="frSend">申請</button></div>
+      <p class="dim" id="frMsg" role="status" hidden></p>
+    </div>
+    <div class="win" id="frGuest" hidden>
+      <h2>ともだち</h2>
+      <p class="dim">ゲストモードではともだち機能を使えません。アカウント登録すると使えます。</p>
+    </div>
+    <div id="frBody" class="fr-body">
+      <div class="win" id="frReqWin" hidden>
+        <h2>申請</h2>
+        <div id="frReq" class="frlist"></div>
+      </div>
+      <div class="win">
+        <h2>ともだち</h2>
+        <p class="dim">見えるのは、最終目標・いま挑戦中の目標・レベルと装備・勉強中の内容だけです。毎日の記録の文章は見えません。</p>
+        <div id="frList" class="frlist"></div>
+        <button class="btn" id="frRefresh">更新</button>
+      </div>
+    </div>
+  </section>
+
+  <section data-view="friendDetail" hidden>
+    <div class="win">
+      <button class="btn small" id="frBack">◀ ともだち一覧にもどる</button>
+      <div id="frDetail"></div>
+    </div>
+    <div class="win">
+      <h2>倒したモンスター</h2>
+      <p class="dim">このともだちが撃破した、魔王と小さな怪物です。新しい順に並びます。</p>
+      <div id="frDefeats" class="history"></div>
+    </div>
+  </section>
+
+  <section data-view="history" hidden>
+    <div class="win">
+      <h2>れきし</h2>
+      <p class="dim">記録、べんきょう、撃破した目標が新しい順に並びます。</p>
+      <div id="historyList" class="history"></div>
+    </div>
   </section>
 
   <section data-view="boss" hidden>
     <div class="win">
-      <h2>最終目標への道のり</h2>
+      <h2>大目標</h2>
       <div id="jobBox" class="body"></div>
     </div>
     <div class="win" id="splitWin" hidden>
@@ -126,8 +177,8 @@
       </div>
     </div>
     <div class="win">
-      <h2>目標の木</h2>
-      <p class="dim">どの目標も「AIに分けてもらう」で、満足するまで細かく分けられます。いちばん小さい目標を「撃破した!」にすると、上の目標も順に倒れます。</p>
+      <h2>目標の木(大目標ごと)</h2>
+      <p class="dim">どの目標も「AIに分けてもらう」で、満足するまで細かく分けられます。いちばん小さい目標を「撃破した!」にすると、上の目標も順に倒れます。倒した大目標は畳まれて、ここに残ります。</p>
       <div id="tree" class="tree"></div>
     </div>
   </section>
@@ -154,7 +205,6 @@
       <h2>勇者と目標</h2>
       <label class="fld">勇者の名前<input type="text" id="setName" maxlength="12"></label>
       <label class="fld">最終目標(目指す職業)<input type="text" id="setJob" maxlength="60"></label>
-      <label class="fld">就職できる達成率(%)<input type="number" id="setThr" min="10" max="100"></label>
     </div>
     <div class="win">
       <h2>バックアップ</h2>
@@ -167,12 +217,26 @@
   </section>
 </div>
 
+<div class="modal" id="newGoalWin" hidden role="dialog" aria-modal="true" aria-labelledby="ngH">
+  <div class="win">
+    <h2 id="ngH">新しい魔王</h2>
+    <p class="body">魔王を倒しました!次の最終目標を決めましょう。入力した目標が、新しい魔王になります。</p>
+    <input type="text" id="ngTitle" maxlength="60" placeholder="例: 海外のゲーム会社に就職する" aria-label="新しい最終目標">
+    <div class="row">
+      <button class="btn primary" id="ngOk">新しい魔王を呼ぶ</button>
+      <button class="btn" id="ngLater">あとで決める</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <nav class="menu" id="menu" aria-label="コマンド" hidden>
   <div>
     <button data-tab="record" role="tab" aria-selected="true">ぼうけん</button>
     <button data-tab="boss" role="tab">ボス</button>
+    <button data-tab="friends" role="tab">ともだち</button>
+    <button data-tab="history" role="tab">れきし</button>
     <button data-tab="status" role="tab">ステータス</button>
     <button data-tab="settings" role="tab">せってい</button>
   </div>
