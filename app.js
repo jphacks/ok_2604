@@ -55,7 +55,7 @@ const K_SESSION = 'liferpg.v3.session';
 const K_API = 'liferpg.v3.api';
 const saveKey = () => 'liferpg.v3.save.' + (session && !session.guest ? session.user.toLowerCase() : '_guest');
 
-const newState = () => ({ v: 3, hero: '', job: '', status: '', onboarded: false, goals: [], focus: '', entries: [], studies: [], study: null });
+const newState = () => ({ v: 3, hero: '', job: '', status: '', onboarded: false, goals: [], focus: '', entries: [], studies: [], study: null, daily: { missions: [], days: {} } });
 
 let session = null;
 let state = newState();
@@ -81,6 +81,20 @@ function normalizeGoals(list, job) {
   return nodes;
 }
 
+function normalizeDaily(d) {
+  const missions = (d && Array.isArray(d.missions) ? d.missions : []).filter(m => m && m.title).slice(0, 20)
+    .map(m => ({ id: String(m.id || uid()), title: String(m.title).slice(0, 40) }));
+  const days = {};
+  Object.keys((d && d.days) || {}).filter(k => /^\d{4}-\d{2}-\d{2}$/.test(k)).sort().slice(-400).forEach(k => {
+    const r = d.days[k] || {};
+    days[k] = {
+      done: (Array.isArray(r.done) ? r.done : []).map(String).slice(0, 20),
+      total: clampInt(r.total, 0, 20), exp: clampInt(r.exp, 0, 500)
+    };
+  });
+  return { missions, days };
+}
+
 function normalize(s) {
   const base = newState();
   if (!s || typeof s !== 'object') return base;
@@ -92,6 +106,7 @@ function normalize(s) {
   }));
   o.study = s.study && s.study.subject && Number(s.study.startedAt) > 0
     ? { subject: String(s.study.subject).slice(0, 40), startedAt: Number(s.study.startedAt) } : null;
+  o.daily = normalizeDaily(s.daily);
   o.entries = (Array.isArray(s.entries) ? s.entries : []).filter(e => e && (e.exp != null || Array.isArray(e.gains))).map(e => ({
     t: Number(e.t) || Date.now(), text: String(e.text || '').slice(0, 500), mood: e.mood || 'flat',
     exp: e.exp != null ? clampInt(e.exp, 0, 1000) : e.gains.reduce((a, g) => a + (+g.v || 0), 0)
@@ -101,7 +116,7 @@ function normalize(s) {
 
 /* 経験値 = 日々の記録 + 撃破したボスの報酬 */
 function totalExp() {
-  return state.entries.reduce((a, e) => a + e.exp, 0) + state.studies.reduce((a, x) => a + x.exp, 0) + state.goals.reduce((a, g) => a + (g.done ? expOfDepth(depthOf(g)) : 0), 0);
+  return state.entries.reduce((a, e) => a + e.exp, 0) + state.studies.reduce((a, x) => a + x.exp, 0) + Object.values(state.daily.days).reduce((a, r) => a + r.exp, 0) + state.goals.reduce((a, g) => a + (g.done ? expOfDepth(depthOf(g)) : 0), 0);
 }
 
 function lvInfo() {
@@ -291,15 +306,12 @@ function leafCount(id) {
   return ls.length ? { done: ls.filter(x => x.done).length, total: ls.length } : null;
 }
 
-/* 子が全部撃破されたら親も撃破、1つでも未達成なら親は未達成に戻す */
+/* 子が1つでも未達成になったら、撃破済みの親は未達成に戻す(親が自動で撃破されることはない) */
 function syncUp(startId) {
   let p = byId(startId);
   while (p) {
     const ks = kids(p.id);
-    if (ks.length) {
-      const all = ks.every(k => k.done);
-      if (all !== p.done) { p.done = all; p.doneAt = all ? Date.now() : 0; }
-    }
+    if (ks.length && p.done && !ks.every(k => k.done)) { p.done = false; p.doneAt = 0; }
     p = p.parentId ? byId(p.parentId) : null;
   }
 }
@@ -357,6 +369,26 @@ function tickLeaf(id) {
   finishChange(prev, before);
 }
 
+/* 子がすべて撃破された目標を、自分の手で撃破する */
+function defeatNode(id) {
+  const g = byId(id), ks = g ? kids(g.id) : [];
+  if (!g || g.done || !ks.length || !ks.every(k => k.done)) return;
+  const prev = doneIds(), before = snapshot();
+  g.done = true; g.doneAt = Date.now();
+  finishChange(prev, before);
+}
+
+/* れきしからの撃破取り消し:その目標と、その下の目標をすべて未撃破に戻す(上の撃破済み目標も戻る) */
+function undoDefeat(id) {
+  const g = byId(id);
+  if (!g || !g.done) return;
+  const prev = doneIds(), before = snapshot();
+  [g, ...descendants(g.id)].forEach(n => { n.done = false; n.doneAt = 0; });
+  syncUp(g.id);
+  finishChange(prev, before);
+  renderHistory();
+}
+
 function addChild(parentId, title, desc = '') {
   const p = byId(parentId), t = String(title).trim().slice(0, 60);
   if (!p || !t) return null;
@@ -399,27 +431,28 @@ function renderBossTab() {
 
 function renderTree() {
   const host = $('#tree'), cur = currentRoot();
-  const list = roots().sort((a, b) => (b === cur) - (a === cur) || a.done - b.done);
+  const list = roots().filter(r => !r.done).sort((a, b) => (b === cur) - (a === cur));
   if (!list.length) { host.innerHTML = '<p class="dim">大目標がまだありません。</p>'; return; }
   const draw = (g, d) => {
-    const ks = kids(g.id), lc = leafCount(g.id), open = !g.collapsed, tier = tierOfDepth(d);
+    const ks = kids(g.id), vk = ks.filter(k => !k.done), lc = leafCount(g.id), open = !g.collapsed, tier = tierOfDepth(d);
+    const allKidsDone = ks.length > 0 && vk.length === 0;
     const isCur = d === 0 && cur && cur.id === g.id;
     const meta = `${MONSTERS[tier].name}${isCur ? ' ・ 挑戦中' : ''}${lc ? ` ・ ${lc.done}/${lc.total}` : ''}${g.done ? ' ・ 撃破!' : ''}`;
     return `<div class="node ${g.done ? 'done' : ''} ${isCur ? 'current' : ''}">
       <div class="nrow">
-        ${ks.length ? `<button class="tgl" data-act="fold" data-id="${g.id}" aria-label="${open ? '閉じる' : '開く'}">${open ? '▾' : '▸'}</button>` : '<span class="tgl"></span>'}
+        ${vk.length ? `<button class="tgl" data-act="fold" data-id="${g.id}" aria-label="${open ? '閉じる' : '開く'}">${open ? '▾' : '▸'}</button>` : '<span class="tgl"></span>'}
         <canvas class="ico" width="48" height="48" data-tier="${tier}"></canvas>
         <div class="ntxt"><div class="btitle">${esc(g.title)}</div><div class="bmeta">${meta}</div>${g.desc ? `<div class="bdesc">${esc(g.desc)}</div>` : ''}</div>
       </div>
       <div class="bact">
-        ${ks.length ? '' : `<button class="btn small ${g.done ? '' : 'primary'}" data-act="tick" data-id="${g.id}">${g.done ? '撃破を取り消す' : '撃破した!'}</button>`}
+        ${ks.length ? (allKidsDone ? `<button class="btn small primary" data-act="defeat" data-id="${g.id}">撃破する</button>` : '') : `<button class="btn small primary" data-act="tick" data-id="${g.id}">撃破した!</button>`}
         ${g.done || isCur ? '' : `<button class="btn small" data-act="show" data-id="${g.id}">${d === 0 ? 'これに挑戦する' : 'アニメに映す'}</button>`}
         <button class="btn small" data-act="split" data-id="${g.id}">AIに分けてもらう</button>
         <button class="btn small" data-act="addOpen" data-id="${g.id}">子目標を追加</button>
         <button class="btn small" data-act="remove" data-id="${g.id}">削除</button>
       </div>
       ${addingFor === g.id ? `<div class="addrow"><input type="text" id="addTitle" maxlength="60" placeholder="子目標の名前" aria-label="子目標の名前"><button class="btn small primary" data-act="addGo" data-id="${g.id}">追加</button></div>` : ''}
-      ${open ? ks.map(k => draw(k, d + 1)).join('') : ''}
+      ${open ? vk.map(k => draw(k, d + 1)).join('') : ''}
     </div>`;
   };
   host.innerHTML = list.map(r => draw(r, 0)).join('');
@@ -617,16 +650,17 @@ function renderHistory() {
   const items = [
     ...state.entries.map(e => ({ t: e.t, kind: '記録', text: e.text, exp: e.exp })),
     ...state.studies.map(x => ({ t: x.t, kind: '勉強', text: `${x.subject}(${x.minutes}分)`, exp: x.exp })),
-    ...state.goals.filter(g => g.done && g.doneAt).map(g => ({
-      t: g.doneAt, kind: '撃破', text: `${MONSTERS[tierOfDepth(depthOf(g))].name}「${g.title}」`, exp: expOfDepth(depthOf(g))
+    ...state.goals.filter(g => g.done).map(g => ({
+      id: g.id, t: g.doneAt || 0, kind: '撃破', text: `${MONSTERS[tierOfDepth(depthOf(g))].name}「${g.title}」`, exp: expOfDepth(depthOf(g))
     }))
-  ].sort((a, b) => b.t - a.t).slice(0, 300);
+  ].sort((a, b) => b.t - a.t).slice(0, 1000);
   let html = '', day = '';
   items.forEach(it => {
-    const d = new Date(it.t).toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
+    const d = it.t ? new Date(it.t).toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' }) : '日付不明';
     if (d !== day) { html += `<div class="hday">${d}</div>`; day = d; }
-    const hm = new Date(it.t).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
-    html += `<div class="hitem"><span class="tag">${it.kind}</span><span class="body">${esc(it.text)}</span><span class="hexp">${hm} ・ +${it.exp} EXP</span></div>`;
+    const hm = it.t ? new Date(it.t).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) + ' ・ ' : '';
+    const undo = it.id ? ` <button class="btn small" data-act="undoDefeat" data-id="${it.id}">撃破を取り消す</button>` : '';
+    html += `<div class="hitem"><span class="tag">${it.kind}</span><span class="body">${esc(it.text)}</span><span class="hexp">${hm}+${it.exp} EXP${undo}</span></div>`;
   });
   $('#historyList').innerHTML = html || '<p class="dim">まだ履歴がありません。記録や勉強をはじめると、ここに残ります。</p>';
 }
@@ -743,6 +777,80 @@ async function sendFriendRequest() {
   }
 }
 
+/* ================= デイリーミッション ================= */
+const DAILY_EXP = 10, DAILY_BONUS = 10;
+let dailyKeyShown = '';
+
+const dayKeyOf = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const todayKey = () => dayKeyOf(new Date());
+
+/* その日の記録を、いまのミッション一覧に合わせて数え直す(今日の分だけ。過去の日は動かさない) */
+function recalcDay(key) {
+  const r = state.daily.days[key] || (state.daily.days[key] = { done: [], total: 0, exp: 0 });
+  r.done = r.done.filter(id => state.daily.missions.some(m => m.id === id));
+  r.total = state.daily.missions.length;
+  r.exp = r.done.length * DAILY_EXP + (r.total > 0 && r.done.length === r.total ? DAILY_BONUS : 0);
+  return r;
+}
+
+/* 連続日数:すべてのミッションを完了した日が続いている数。今日がまだなら、昨日までを数える */
+function dailyStreak() {
+  const full = k => { const r = state.daily.days[k]; return !!r && r.total > 0 && r.done.length === r.total; };
+  const d = new Date();
+  if (!full(dayKeyOf(d))) d.setDate(d.getDate() - 1);
+  let n = 0;
+  while (full(dayKeyOf(d))) { n++; d.setDate(d.getDate() - 1); }
+  return n;
+}
+
+function renderDaily() {
+  const key = todayKey(); dailyKeyShown = key;
+  const rec = state.daily.days[key] || { done: [] };
+  const ms = state.daily.missions, doneN = ms.filter(m => rec.done.includes(m.id)).length;
+  const st = dailyStreak();
+  $('#dailyStreak').innerHTML = ms.length
+    ? `<p>今日 <b style="color:var(--gold)">${doneN}/${ms.length}</b> 完了 ・ <b style="color:var(--gold)">${st}日連続</b></p>`
+    : '<p class="dim">ミッションがまだありません。下の欄から、毎日やることを登録しましょう。</p>';
+  $('#dailyList').innerHTML = ms.map(m => {
+    const on = rec.done.includes(m.id);
+    return `<div class="mission ${on ? 'done' : ''}">
+      <button class="chkbtn" data-act="dailyTick" data-id="${m.id}" aria-pressed="${on}" aria-label="${esc(m.title)}を${on ? '未完了に戻す' : '完了にする'}">${on ? '☑' : '☐'}</button>
+      <span class="body">${esc(m.title)}</span>
+      <button class="btn small" data-act="dailyDel" data-id="${m.id}">削除</button>
+    </div>`;
+  }).join('');
+}
+
+function toggleMission(id) {
+  if (!state.daily.missions.some(m => m.id === id)) return;
+  const before = snapshot(), key = todayKey();
+  const r = state.daily.days[key] || (state.daily.days[key] = { done: [], total: 0, exp: 0 });
+  r.done = r.done.includes(id) ? r.done.filter(x => x !== id) : [...r.done, id];
+  const was = r.exp, now = recalcDay(key);
+  save(); refreshHud(); announce(before); renderDaily();
+  if (now.exp > was) toast(`ミッション達成! +${now.exp - was} EXP`);
+}
+
+function addMission() {
+  const input = $('#dailyTitle'), title = input.value.trim().slice(0, 40);
+  if (!title) { input.focus(); return; }
+  if (state.daily.missions.length >= 20) { toast('ミッションは20個までです'); return; }
+  const before = snapshot();
+  state.daily.missions.push({ id: uid(), title });
+  input.value = '';
+  recalcDay(todayKey());             // 全完了のボーナス判定を、増えた数に合わせる
+  save(); refreshHud(); announce(before); renderDaily();
+}
+
+function deleteMission(id) {
+  const m = state.daily.missions.find(x => x.id === id);
+  if (!m || !confirm(`「${m.title}」を削除しますか?`)) return;
+  const before = snapshot();
+  state.daily.missions = state.daily.missions.filter(x => x.id !== id);
+  recalcDay(todayKey());
+  save(); refreshHud(); announce(before); renderDaily();
+}
+
 /* ================= ステータス(EXPとレベル・装備のみ) ================= */
 function renderStatus() {
   const li = lvInfo();
@@ -777,6 +885,7 @@ function show(v) {
   if (v === 'status') renderStatus();
   if (v === 'record') renderStudy();
   if (v === 'history') renderHistory();
+  if (v === 'daily') renderDaily();
   if (v === 'friends') loadFriends();
   if (v === 'friendDetail') renderFriendDetail();
   if (v === 'settings') renderSettings();
@@ -937,12 +1046,17 @@ function bind() {
   $('#frSend').onclick = sendFriendRequest;
   $('#frRefresh').onclick = loadFriends;
   $('#frBack').onclick = () => show('friends');
+  $('#dailyAdd').onclick = addMission;
   $('#ngOk').onclick = () => addRoot(true);
   $('#ngLater').onclick = () => { $('#newGoalWin').hidden = true; };
   setInterval(() => {
     const c = $('#studyClock');
     if (c && state.study) c.textContent = fmtClock(Date.now() - state.study.startedAt);
   }, 1000);
+  setInterval(() => {
+    const active = $('#menu button[aria-selected=true]')?.dataset.tab;
+    if (active === 'daily' && dailyKeyShown && dailyKeyShown !== todayKey()) renderDaily();
+  }, 30000);
   setInterval(() => {
     const active = $('#menu button[aria-selected=true]')?.dataset.tab;
     if (active === 'friends' && session && !session.guest && !document.hidden) loadFriends();
@@ -959,6 +1073,10 @@ function bind() {
     if (!b) return;
     const id = b.dataset.id, act = b.dataset.act;
     if (act === 'tick') tickLeaf(id);
+    else if (act === 'defeat') defeatNode(id);
+    else if (act === 'undoDefeat') undoDefeat(id);
+    else if (act === 'dailyTick') toggleMission(id);
+    else if (act === 'dailyDel') deleteMission(id);
     else if (act === 'remove') removeNode(id);
     else if (act === 'fold') { const g = byId(id); if (g) { g.collapsed = !g.collapsed; save(); renderTree(); } }
     else if (act === 'show') { state.focus = id; save(); refreshStage(); refreshHud(); window.scrollTo({ top: 0, behavior: 'smooth' }); toast('アニメに映しました'); }
@@ -978,6 +1096,7 @@ function bind() {
     if (e.target.id === 'addTitle' && addingFor) addManualChild(addingFor);
     else if (e.target.id === 'rootTitle') addRoot(false);
     else if (e.target.id === 'ngTitle') addRoot(true);
+    else if (e.target.id === 'dailyTitle') addMission();
     else if (e.target.id === 'studySubject') startStudy();
     else if (e.target.id === 'frName') sendFriendRequest();
     else if (e.target.id === 'obAddTitle') $('#obAddGo').click();

@@ -153,10 +153,10 @@ details[open] summary { margin-bottom: 8px; }
 .gear b { font-weight: 400; }
 
 .menu { position: fixed; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; background: var(--edge); border-top: 3px solid var(--frame); padding: 8px max(16px, env(safe-area-inset-right, 0px)) calc(8px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); z-index: 10; }
-.menu div { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; width: 100%; max-width: 480px; }
-.menu button { font: inherit; font-size: 13px; background: none; border: 0; color: var(--dim); padding: 8px 2px; cursor: pointer; white-space: nowrap; }
+.menu div { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; width: 100%; max-width: 480px; }
+.menu button { font: inherit; font-size: 12px; background: none; border: 0; color: var(--dim); padding: 8px 2px; cursor: pointer; white-space: nowrap; }
 .menu button[aria-selected="true"] { color: var(--gold); }
-.menu button[aria-selected="true"]::before { content: "▶"; margin-right: 2px; }
+.menu button[aria-selected="true"] { text-decoration: underline; text-underline-offset: 4px; }
 
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 84px; z-index: 20; display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; width: min(92vw, 440px); }
 .toast div { background: var(--edge); border: 2px solid var(--gold); color: var(--gold); border-radius: 4px; padding: 6px 12px; font-size: 14px; text-align: center; animation: pop .25s; }
@@ -210,7 +210,7 @@ body.typing { padding-bottom: 55vh; }
 .ftxt { min-width: 0; }
 .studying { color: var(--hp); font-family: var(--f-body); font-size: 13px; }
 @media (max-width: 420px) {
-  .menu button { font-size: 11px; letter-spacing: 0; padding: 8px 0; }
+  .menu button { font-size: 10px; letter-spacing: 0; padding: 8px 0; }
   .menu button[aria-selected="true"]::before { display: none; }
   .friend { grid-template-columns: 56px 1fr; }
   .friend > .btn { grid-column: 2; justify-self: start; }
@@ -225,3 +225,10 @@ body.typing { padding-bottom: 55vh; }
 @media (max-width: 420px) {
   .fbtns { grid-column: 2; flex-direction: row; }
 }
+
+/* デイリーミッション */
+.dailylist { display: flex; flex-direction: column; gap: 8px; }
+.mission { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; background: #050830; border: 1px solid var(--dim); border-radius: 4px; padding: 6px 10px; }
+.mission.done { border-color: var(--hp); }
+.mission.done .body { text-decoration: line-through; opacity: .7; }
+.chkbtn { font: inherit; font-size: 26px; line-height: 1; background: none; border: 0; color: var(--gold); cursor: pointer; padding: 0 2px; }
