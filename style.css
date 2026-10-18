@@ -226,3 +226,31 @@ details[open] summary { margin-bottom: 8px; }
   outline: 2px solid #ffffff;
   outline-offset: 2px;
 }
+
+
+
+/* 下部メニューを4列・2段にする */
+.menu > div {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  padding: 6px;
+}
+
+/* 通常時・選択時ともに文字サイズを固定する */
+.menu button,
+.menu button[aria-selected="true"] {
+  box-sizing: border-box;
+  min-width: 0;
+  margin: 0;
+  padding: 10px 2px;
+  font-size: 14px;
+  line-height: 1.4;
+  white-space: nowrap;
+  transform: none;
+}
+
+/* 2段になったメニューで本文が隠れないようにする */
+.app {
+  padding-bottom: 130px;
+}
