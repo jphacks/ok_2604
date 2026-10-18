@@ -1114,7 +1114,7 @@ function bind() {
   });
 
   $('#authGo').onclick = authSubmit;
-  $('#authPass').onkeydown = e => { if (e.key === 'Enter') authSubmit(); };
+  $('#authPass').onkeydown = e => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) authSubmit(); };
   $('#guestGo').onclick = async () => {
     const apiUrl = $('#authApi').value.trim(); if (apiUrl) lsSet(K_API, apiUrl);
     session = { user: 'ゲスト', token: '', guest: true };
@@ -1186,7 +1186,7 @@ function bind() {
   });
 
   document.addEventListener('keydown', e => {
-    if (e.key !== 'Enter') return;
+    if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;   // 日本語入力の変換確定のEnterは無視する
     if (e.target.id === 'addTitle' && addingFor) addManualChild(addingFor);
     else if (e.target.id === 'rootTitle') addRoot(false);
     else if (e.target.id === 'ngTitle') addRoot(true);

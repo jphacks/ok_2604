@@ -113,7 +113,6 @@
   <section data-view="daily" hidden>
     <div class="win">
       <h2>デイリーミッション</h2>
-      <p class="dim">毎日やると決めたことを登録します(時間は入れても入れなくてもOK)。「開始」を押すとそのタスクの怪物があらわれ、時間のあるタスクは目標の時間に届いたら「撃破」、時間のないタスクは「結束」で怪物を倒せます。途中で「中断」すると、それまでの時間は記録されて、次の「再開」で続きから数えます。1体倒すごとに +10 EXP、その日のミッションをすべて倒すと、さらに +10 EXP。毎日0時にリセットされます。</p>
       <div id="dailyStreak" class="body"></div>
       <div id="dailyList" class="dailylist"></div>
       <div class="addrow dailyadd"><input type="text" id="dailyTitle" maxlength="40" placeholder="例: 英単語" aria-label="新しいミッション"><input type="number" id="dailyMin" min="1" max="600" placeholder="分(任意)" aria-label="時間(分・任意)"><button type="button" class="btn small primary" id="dailyAdd">追加</button></div>
@@ -123,7 +122,6 @@
   <section data-view="friends" hidden>
     <div class="win">
       <h2>ともだちを追加</h2>
-      <p class="dim">相手のユーザー名を入力して申請します。相手が承認すると、おたがいの目標や勉強中の様子が見えるようになります。</p>
       <div class="addrow"><input type="text" id="frName" maxlength="20" placeholder="ユーザー名" autocapitalize="off" aria-label="ともだちのユーザー名"><button class="btn small primary" id="frSend">申請</button></div>
       <p class="dim" id="frMsg" role="status" hidden></p>
     </div>
@@ -138,7 +136,6 @@
       </div>
       <div class="win">
         <h2>ともだち</h2>
-        <p class="dim">見えるのは、最終目標・いま挑戦中の目標・レベルと装備・勉強中の内容だけです。毎日の記録の文章は見えません。</p>
         <div id="frList" class="frlist"></div>
         <button class="btn" id="frRefresh">更新</button>
       </div>
@@ -160,7 +157,6 @@
   <section data-view="history" hidden>
     <div class="win">
       <h2>れきし</h2>
-      <p class="dim">記録、べんきょう、撃破した目標が新しい順に並びます。撃破した目標は「撃破を取り消す」でボスの画面に戻せます。</p>
       <div id="historyList" class="history"></div>
     </div>
   </section>
