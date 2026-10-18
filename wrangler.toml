@@ -10,4 +10,4 @@ id = "a1d1fa1808c049d28d7dae51af9322fd"
 [vars]
 # 公開するサイトのオリジンに限定してください(例: "https://example.github.io")。カンマ区切りで複数可。
 ALLOWED_ORIGIN = "*"
-GEMINI_MODEL = "gemini-3.5-flash"
+GEMINI_MODEL = "gemini-3.5-flash-lite"
